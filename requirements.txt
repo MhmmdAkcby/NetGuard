@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+scapy
+mac-vendor-lookup
+jinja2
+httpx

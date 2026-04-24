@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetGuard | Network Scanner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at top left, #0f172a, #020617);
+            min-height: 100vh;
+            color: #f8fafc;
+        }
+        .glass {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .scanner-glow {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+        @keyframes pulse-custom {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        .animate-pulse-custom {
+            animation: pulse-custom 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6">
+            <div>
+                <h1 class="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
+                    NetGuard
+                </h1>
+                <p class="text-slate-400 mt-2 text-lg">Intelligent Network Discovery & Analysis</p>
+            </div>
+            
+            <div class="glass p-2 rounded-2xl flex items-center gap-2">
+                <input type="text" id="subnetInput" placeholder="192.168.1.0/24" value="192.168.1.0/24" 
+                    class="bg-transparent border-none focus:ring-0 text-white placeholder-slate-500 px-4 py-2 w-full md:w-64 text-lg">
+                <button id="scanBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-8 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 active:scale-95 flex items-center gap-2">
+                    <span id="btnText">Start Scan</span>
+                    <div id="loader" class="hidden w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                </button>
+            </div>
+        </header>
+
+        <!-- Stats Card (Placeholder for now) -->
+        <div id="statusBanner" class="hidden mb-8 p-4 rounded-xl border border-red-500/50 bg-red-500/10 text-red-400 flex items-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span id="errorMessage"></span>
+        </div>
+
+        <!-- Main Table Container -->
+        <div class="glass rounded-3xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-800/50 border-b border-white/10">
+                            <th class="px-8 py-6 text-slate-300 font-semibold text-sm uppercase tracking-wider">Device Info</th>
+                            <th class="px-8 py-6 text-slate-300 font-semibold text-sm uppercase tracking-wider">IP Address</th>
+                            <th class="px-8 py-6 text-slate-300 font-semibold text-sm uppercase tracking-wider">MAC Address</th>
+                            <th class="px-8 py-6 text-slate-300 font-semibold text-sm uppercase tracking-wider">Manufacturer / Vendor</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deviceTableBody" class="divide-y divide-white/5">
+                        <tr id="emptyRow">
+                            <td colspan="4" class="px-8 py-20 text-center">
+                                <div class="flex flex-col items-center gap-4 text-slate-500">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    <p class="text-xl">Enter a subnet range and click Start Scan to begin discovery</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Footer Info -->
+        <footer class="mt-8 flex justify-between items-center text-slate-500 text-sm">
+            <p>&copy; 2024 NetGuard Security Framework</p>
+            <div class="flex items-center gap-4">
+                <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> System Ready</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
