@@ -11,6 +11,12 @@ NetGuard is a high-performance, asynchronous network security scanner designed f
 </p>
 
 <p align="center">
+  <img src="assets/topology_view.png" width="900" alt="Network Topology Live">
+  <br>
+  <em>Live Network Topology Mapping: Visualizing device connections and gateway distribution.</em>
+</p>
+
+<p align="center">
   <img src="assets/alerts.png" width="440" alt="Intelligence Hub">
   <img src="assets/settings.png" width="440" alt="Global Config">
   <br>
