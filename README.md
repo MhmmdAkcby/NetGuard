@@ -26,6 +26,18 @@ python main.py
 Open your browser and go to:
 [http://localhost:8001](http://localhost:8001)
 
+## 📸 Screenshots
+<p align="center">
+  <img src="assets/dashboard.png" width="800" alt="Dashboard Overview">
+  <br>
+  <em>Main Reconnaissance Dashboard with Network Topology</em>
+</p>
+
+<p align="center">
+  <img src="assets/alerts.png" width="400" alt="Intelligence Hub">
+  <img src="assets/settings.png" width="400" alt="Global Config">
+</p>
+
 ---
 
 ## 🛠️ Features
