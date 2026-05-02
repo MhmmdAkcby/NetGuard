@@ -78,7 +78,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         activeBtn.classList.add('tab-active');
         document.getElementById(viewId).classList.remove('hidden');
-        if (viewId === 'topology') cy.resize();
+        if (viewId === 'reconView' && cy) {
+            setTimeout(() => {
+                cy.resize();
+                cy.fit();
+            }, 100);
+        }
     };
 
     elements.showRecon.onclick = () => switchTab(elements.showRecon, 'reconView');
@@ -135,6 +140,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Cytoscape Init ---
     const initCy = () => {
+        // Icon definitions (SVG strings)
+        const icons = {
+            router: 'data:image/svg+xml;utf8,<svg fill="%233b82f6" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z"/></svg>',
+            mobile: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17,19H7V5H17M17,1H7C5.89,1 5,1.89 5,3V21C5,22.11 5.89,23 7,23H17C18.11,23 19,22.11 19,21V3C19,1.89 18.11,1 17,1Z"/></svg>',
+            desktop: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21,14H3V4H21M21,2H3C1.89,2 1,2.89 1,4V16C1,17.11 1.89,18 3,18H10V20H8V22H16V20H14V18H21C22.11,18 23,17.11 23,16V4C23,2.89 22.11,2 21,2Z"/></svg>',
+            server: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19,15H5V13H19M19,11H5V9H19M19,7H5V5H19M19,3H5C3.89,3 3,3.89 3,5V19C3,20.11 3.89,21 5,21H19C20.11,21 21,20.11 21,19V5C21,3.89 20.11,3 19,3Z"/></svg>',
+            iot: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/></svg>'
+        };
+
         cy = cytoscape({
             container: document.getElementById('topology'),
             style: [
@@ -142,47 +156,81 @@ document.addEventListener('DOMContentLoaded', () => {
                     'background-color': '#1e293b', 
                     'label': 'data(id)', 
                     'color': '#94a3b8', 
-                    'font-size': '8px', 
+                    'font-size': '10px', 
                     'text-valign': 'bottom', 
-                    'width': 35, 
-                    'height': 35, 
+                    'width': 40, 
+                    'height': 40, 
                     'border-width': 2, 
                     'border-color': '#334155', 
-                    'text-margin-y': '5px',
-                    'transition-property': 'background-color, border-color, width, height',
-                    'transition-duration': '0.3s'
+                    'text-margin-y': '8px',
+                    'font-weight': '600',
+                    'background-image': (node) => {
+                        const d = node.data('device');
+                        const h = (d.hostname || '').toLowerCase();
+                        const os = (d.os || '').toLowerCase();
+                        if (node.hasClass('gateway')) return icons.router;
+                        if (os.includes('android') || os.includes('ios') || h.includes('phone') || h.includes('pad')) return icons.mobile;
+                        if (os.includes('linux') || h.includes('server')) return icons.server;
+                        if (os.includes('windows')) return icons.desktop;
+                        return icons.iot;
+                    },
+                    'background-width': '60%',
+                    'background-height': '60%',
+                    'transition-property': 'background-color, border-color, width, height, opacity',
+                    'transition-duration': '0.3s',
+                    'opacity': 0 // For entrance animation
                 } },
                 { selector: 'edge', style: { 
-                    'width': 1.5, 
-                    'line-color': 'rgba(59, 130, 246, 0.2)', 
-                    'curve-style': 'haystack', 
-                    'line-style': 'solid'
+                    'width': 2, 
+                    'line-color': 'rgba(59, 130, 246, 0.4)', 
+                    'curve-style': 'bezier', 
+                    'target-arrow-shape': 'none',
+                    'line-style': 'solid',
+                    'opacity': 0.3
                 } },
                 { selector: '.gateway', style: { 
                     'background-color': '#2563eb', 
-                    'width': 50, 
-                    'height': 50, 
+                    'width': 55, 
+                    'height': 55, 
                     'border-color': '#60a5fa', 
                     'border-width': 3,
-                    'shadow-blur': '15px', 
+                    'shadow-blur': '20px', 
                     'shadow-color': '#3b82f6',
-                    'shadow-opacity': 0.5
+                    'shadow-opacity': 0.6
                 } },
                 { selector: '.high-risk', style: { 
                     'border-color': '#ef4444', 
-                    'border-width': 3,
-                    'background-color': '#450a0a'
+                    'border-width': 4,
+                    'background-color': '#450a0a',
+                    'shadow-blur': '15px',
+                    'shadow-color': '#ef4444',
+                    'shadow-opacity': 0.5
+                } },
+                { selector: '.edge-pulse', style: {
+                    'width': 3,
+                    'line-color': '#3b82f6',
+                    'opacity': 1,
+                    'line-style': 'dashed'
                 } }
             ],
             layout: { 
                 name: 'concentric',
-                padding: 50,
+                padding: 60,
                 animate: true,
                 concentric: function(node) { return node.hasClass('gateway') ? 2 : 1; },
                 levelWidth: function() { return 1; }
-            }
+            },
+            userZoomingEnabled: true,
+            userPanningEnabled: true
         });
+
         cy.on('tap', 'node', (e) => renderDetails(e.target.data('device')));
+        
+        // Pulse effect for edges
+        setInterval(() => {
+            cy.edges().addClass('edge-pulse');
+            setTimeout(() => cy.edges().removeClass('edge-pulse'), 1000);
+        }, 3000);
     };
     initCy();
 
@@ -231,6 +279,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const passive = elements.passiveMode.checked;
         
         isScanning = true;
+        // Trigger glitch effect on start
+        document.getElementById('reconView').classList.add('glitch-flash');
+        setTimeout(() => document.getElementById('reconView').classList.remove('glitch-flash'), 400);
+        
         if (cy) { cy.elements().remove(); cy.resize(); }
         document.getElementById('topology').classList.add('scanning');
         elements.scanBtn.textContent = "Stop Scan";
@@ -317,8 +369,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const addNodeToTopology = (d) => {
         const isGW = d.ip.endsWith('.1') || (d.hostname && d.hostname.toLowerCase().includes('router'));
-        cy.add({ group: 'nodes', data: { id: d.ip, device: d }, classes: (isGW ? 'gateway ' : '') + (d.risk_score > 0 ? 'high-risk' : '') });
-        if (!isGW) { const gw = cy.nodes('.gateway').first(); if (gw.length) cy.add({ group: 'edges', data: { source: gw.id(), target: d.ip } }); }
+        const nodeClasses = (isGW ? 'gateway ' : '') + (d.risk_score > 0 ? 'high-risk' : '');
+        
+        const node = cy.add({ 
+            group: 'nodes', 
+            data: { id: d.ip, device: d }, 
+            classes: nodeClasses
+        });
+
+        // Entrance Animation
+        node.animate({
+            style: { opacity: 1 },
+            duration: 500
+        });
+
+        // Linking Logic
+        if (isGW) {
+            // If we just added the gateway, link ALL existing non-gateway nodes to it
+            cy.nodes().not(node).forEach(n => {
+                if (!cy.edges(`edge[source="${node.id()}"][target="${n.id()}"]`).length && 
+                    !cy.edges(`edge[source="${n.id()}"][target="${node.id()}"]`).length) {
+                    cy.add({ group: 'edges', data: { source: node.id(), target: n.id() } });
+                }
+            });
+        } else {
+            // If we added a normal node, link it to the gateway if it exists
+            const gw = cy.nodes('.gateway').first();
+            if (gw.length) {
+                cy.add({ group: 'edges', data: { source: gw.id(), target: d.ip } });
+            }
+        }
     };
 
     const updateSecurityStats = (data) => {
