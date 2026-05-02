@@ -17,8 +17,8 @@ NetGuard is a high-performance, asynchronous network security scanner designed f
 </p>
 
 <p align="center">
-  <img src="assets/alerts.png" width="440" alt="Intelligence Hub">
-  <img src="assets/settings.png" width="440" alt="Global Config">
+  <img src="assets/alerts.png" width="900" alt="Intelligence Hub">
+  <img src="assets/settings.png" width="900" alt="Global Config">
   <br>
   <em>Intelligence Hub (Security Alerts) & Global Configuration Panel</em>
 </p>
