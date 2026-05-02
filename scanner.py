@@ -232,32 +232,81 @@ class SurroundingNetworkEngine:
             yield {"type": "error", "message": str(e), "state": "Failed"}
 
     async def _scan_windows(self) -> List[Dict[str, Any]]:
+        # Attempt to trigger a scan refresh by calling it once first
+        try:
+            await asyncio.to_thread(subprocess.run, ["netsh", "wlan", "show", "networks"], 
+                                   capture_output=True, creationflags=0x08000000 if os.name == 'nt' else 0)
+            await asyncio.sleep(0.5) # Small gap for the card to update cache
+        except: pass
+
         cmd = ["netsh", "wlan", "show", "networks", "mode=bssid"]
-        output = await asyncio.to_thread(subprocess.check_output, cmd, stderr=subprocess.STDOUT, creationflags=0x08000000 if os.name == 'nt' else 0)
-        output = output.decode('cp850', errors='ignore') # Windows CMD uses regional encoding
+        try:
+            output = await asyncio.to_thread(subprocess.check_output, cmd, stderr=subprocess.STDOUT, creationflags=0x08000000 if os.name == 'nt' else 0)
+            output = output.decode('cp850', errors='ignore')
+        except Exception as e:
+            logger.error(f"Windows WiFi Scan Error: {e}")
+            return []
         
         networks = []
-        current_net = {}
+        current_ssid = None
+        current_net = None
         
+        # Regex for better parsing
+        ssid_re = re.compile(r"^SSID\s+\d+\s+:\s+(.*)$", re.IGNORECASE)
+        bssid_re = re.compile(r"^\s*BSSID\s+\d+\s+:\s+([0-9a-fA-F:]{17})$", re.IGNORECASE)
+        signal_re = re.compile(r"^\s*Signal\s+:\s+(\d+%)", re.IGNORECASE)
+        auth_re = re.compile(r"^\s*Authentication\s+:\s+(.*)$", re.IGNORECASE)
+        channel_re = re.compile(r"^\s*Channel\s+:\s+(\d+)$", re.IGNORECASE)
+        radio_re = re.compile(r"^\s*Radio type\s+:\s+(.*)$", re.IGNORECASE)
+
         for line in output.split('\n'):
-            line = line.strip()
-            if line.startswith("SSID"):
-                if current_net.get("ssid"): networks.append(current_net)
-                ssid = line.split(":", 1)[1].strip() if ":" in line else "Hidden"
-                current_net = {"ssid": ssid or "Hidden", "method": "WiFi Scan"}
-            elif "BSSID" in line and ":" in line:
-                current_net["bssid"] = line.split(":", 1)[1].strip()
-            elif "Signal" in line and ":" in line:
-                current_net["signal"] = line.split(":", 1)[1].strip()
-            elif "Authentication" in line and ":" in line:
-                current_net["security"] = line.split(":", 1)[1].strip()
-            elif "Channel" in line and ":" in line:
-                current_net["channel"] = line.split(":", 1)[1].strip()
-            elif "Radio type" in line and ":" in line:
-                val = line.split(":", 1)[1].strip()
-                current_net["band"] = "5 GHz" if "802.11a" in val or "802.11ac" in val or "802.11ax" in val else "2.4 GHz"
+            line_clean = line.strip()
+            if not line_clean: continue
+            
+            # New SSID block starts
+            ssid_match = ssid_re.match(line_clean)
+            if ssid_match:
+                if current_net: networks.append(current_net)
+                current_ssid = ssid_match.group(1).strip() or "Hidden"
+                current_net = None # Reset current BSSID entry
+                continue
+            
+            # New BSSID entry within an SSID
+            bssid_match = bssid_re.match(line_clean)
+            if bssid_match:
+                # If we were already tracking a BSSID, save it before starting new one
+                if current_net: networks.append(current_net)
+                
+                current_net = {
+                    "ssid": current_ssid,
+                    "bssid": bssid_match.group(1).upper(),
+                    "method": "WiFi Scan",
+                    "signal": "0%",
+                    "security": "Unknown",
+                    "channel": "Unknown",
+                    "band": "Unknown"
+                }
+                continue
+            
+            # Enrichment fields for the CURRENT BSSID
+            if current_net:
+                sig_match = signal_re.match(line_clean)
+                if sig_match: current_net["signal"] = sig_match.group(1)
+                
+                auth_match = auth_re.match(line_clean)
+                if auth_match: current_net["security"] = auth_match.group(1).strip()
+                
+                chan_match = channel_re.match(line_clean)
+                if chan_match: current_net["channel"] = chan_match.group(1)
+                
+                rad_match = radio_re.match(line_clean)
+                if rad_match:
+                    val = rad_match.group(1).strip().lower()
+                    current_net["band"] = "5 GHz" if any(x in val for x in ["802.11a", "802.11ac", "802.11ax"]) else "2.4 GHz"
+
+        # Don't forget the last one
+        if current_net: networks.append(current_net)
         
-        if current_net.get("ssid"): networks.append(current_net)
         return networks
 
     async def _scan_linux(self) -> List[Dict[str, Any]]:
