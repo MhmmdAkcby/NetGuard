@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+network_scans.db
+test_network.db
+config.json
+.env
+.vscode/
+.idea/
+*.log

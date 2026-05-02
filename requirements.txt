@@ -4,3 +4,10 @@ scapy
 mac-vendor-lookup
 jinja2
 httpx
+websockets
+psutil
+apscheduler
+aiosqlite
+pytest
+pytest-asyncio
+pytest-cov
