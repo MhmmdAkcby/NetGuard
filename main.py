@@ -14,7 +14,7 @@ import logging
 import json
 from datetime import datetime, timedelta
 
-from scanner import scan_network_stream, update_mac_database, get_interfaces, DiscoveryManager, discovery_manager
+from scanner import scan_network_stream, update_mac_database, get_interfaces, DiscoveryManager, discovery_manager, scan_surrounding_networks_stream
 from database import init_db, save_scan_results, get_latest_scans, get_alerts, save_alert, get_latest_full_scan, save_network_health, save_config, get_config
 from cve_updater import update_cve_database, get_cve_stats
 
@@ -103,11 +103,16 @@ async def websocket_scan(websocket: WebSocket):
         interface = params.get("interface")
         speed = params.get("speed", "Normal")
         passive = params.get("passive", False)
+        surrounding = params.get("surrounding", False)
         
         await save_config("last_subnet", subnet)
         await save_config("last_interface", interface)
 
-        if passive:
+        if surrounding:
+            # Surrounding WiFi Scan
+            async for update in scan_surrounding_networks_stream():
+                await websocket.send_json(update)
+        elif passive:
             # Netdiscover Passive Mode Handler
             def on_passive_device(data):
                 asyncio.run_coroutine_threadsafe(websocket.send_json({"type": "device", "data": data}), asyncio.get_event_loop())

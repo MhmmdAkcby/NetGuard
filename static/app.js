@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showSecurity: document.getElementById('showSecurity'),
         showHistory: document.getElementById('showHistory'),
         showSettings: document.getElementById('showSettings'),
+        wifiScanBtn: document.getElementById('wifiScanBtn'),
         reconView: document.getElementById('reconView'),
         securityView: document.getElementById('securityView'),
         historyView: document.getElementById('historyView'),
@@ -146,7 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
             mobile: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17,19H7V5H17M17,1H7C5.89,1 5,1.89 5,3V21C5,22.11 5.89,23 7,23H17C18.11,23 19,22.11 19,21V3C19,1.89 18.11,1 17,1Z"/></svg>',
             desktop: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21,14H3V4H21M21,2H3C1.89,2 1,2.89 1,4V16C1,17.11 1.89,18 3,18H10V20H8V22H16V20H14V18H21C22.11,18 23,17.11 23,16V4C23,2.89 22.11,2 21,2Z"/></svg>',
             server: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19,15H5V13H19M19,11H5V9H19M19,7H5V5H19M19,3H5C3.89,3 3,3.89 3,5V19C3,20.11 3.89,21 5,21H19C20.11,21 21,20.11 21,19V5C21,3.89 20.11,3 19,3Z"/></svg>',
-            iot: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/></svg>'
+            iot: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/></svg>',
+            wifi: 'data:image/svg+xml;utf8,<svg fill="%23a855f7" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12,21L15.6,16.2C14.6,15.45 13.35,15 12,15C10.65,15 9.4,15.45 8.4,16.2L12,21M12,3C7.95,3 4.21,4.34 1.2,6.6L3,9C5.5,7.12 8.62,6 12,6C15.38,6 18.5,7.12 21,9L22.8,6.6C19.79,4.34 16.05,3 12,3M12,9C9.3,9 6.81,9.89 4.8,11.4L6.6,13.8C8.1,12.67 9.97,12 12,12C14.03,12 15.9,12.67 17.4,13.8L19.2,11.4C17.19,9.89 14.7,9 12,9Z"/></svg>'
         };
 
         cy = cytoscape({
@@ -166,6 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     'font-weight': '600',
                     'background-image': (node) => {
                         const d = node.data('device');
+                        if (d.method === "WiFi Scan") return icons.wifi;
                         const h = (d.hostname || '').toLowerCase();
                         const os = (d.os || '').toLowerCase();
                         if (node.hasClass('gateway')) return icons.router;
@@ -272,11 +275,12 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.clearAlerts.onclick = () => { elements.alertsContainer.innerHTML = ''; };
 
     // --- Core Scan Engine ---
-    const startScan = () => {
-        const subnet = elements.subnetInput.value.trim();
-        const iface = elements.interfaceSelect.value;
-        const speed = elements.speedSelect.value;
-        const passive = elements.passiveMode.checked;
+    const startScan = (overrides = {}) => {
+        const subnet = overrides.subnet || elements.subnetInput.value.trim();
+        const iface = overrides.interface || elements.interfaceSelect.value;
+        const speed = overrides.speed || elements.speedSelect.value;
+        const passive = overrides.passive !== undefined ? overrides.passive : elements.passiveMode.checked;
+        const surrounding = overrides.surrounding || false;
         
         isScanning = true;
         // Trigger glitch effect on start
@@ -285,8 +289,15 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (cy) { cy.elements().remove(); cy.resize(); }
         document.getElementById('topology').classList.add('scanning');
-        elements.scanBtn.textContent = "Stop Scan";
-        elements.scanBtn.classList.replace('bg-blue-600', 'bg-red-600');
+        
+        if (surrounding) {
+            elements.wifiScanBtn.textContent = "Stop WiFi Scan";
+            elements.wifiScanBtn.classList.replace('bg-purple-600', 'bg-red-600');
+        } else {
+            elements.scanBtn.textContent = "Stop Scan";
+            elements.scanBtn.classList.replace('bg-blue-600', 'bg-red-600');
+        }
+        
         elements.progressContainer.classList.remove('hidden');
         elements.deviceTableBody.innerHTML = ''; 
         elements.noDevicesPlaceholder.classList.add('hidden');
@@ -294,7 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         currentSocket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/scan`);
         currentSocket.onopen = () => {
-            currentSocket.send(JSON.stringify({ subnet, interface: iface, speed, passive }));
+            currentSocket.send(JSON.stringify({ subnet, interface: iface, speed, passive, surrounding }));
         };
 
         currentSocket.onmessage = (e) => {
@@ -323,11 +334,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const updateOrAddDevice = (device) => {
-        const existingIdx = lastScanData.findIndex(d => d.ip === device.ip);
+        const id = (device.ip || device.bssid || '').replace(/[\.:]/g, '-');
+        const existingIdx = lastScanData.findIndex(d => (d.ip || d.bssid) === (device.ip || device.bssid));
         if (existingIdx !== -1) {
             lastScanData[existingIdx] = { ...lastScanData[existingIdx], ...device };
-            const row = document.getElementById(`device-row-${device.ip.replace(/\./g, '-')}`);
-            if (row) row.querySelector('.packet-count').textContent = device.packets || 1;
+            const row = document.getElementById(`device-row-${id}`);
+            if (row) row.querySelector('.packet-count').textContent = device.packets || `CH ${device.channel}` || 1;
         } else {
             lastScanData.push(device);
             renderDeviceRow(device);
@@ -345,35 +357,56 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('topology').classList.remove('scanning');
         elements.scanBtn.textContent = "Start Intel Scan";
         elements.scanBtn.classList.replace('bg-red-600', 'bg-blue-600');
+        elements.wifiScanBtn.textContent = "Nearby WiFi";
+        elements.wifiScanBtn.classList.replace('bg-red-600', 'bg-purple-600');
         elements.progressContainer.classList.add('hidden');
         if (lastScanData.length === 0) elements.noDevicesPlaceholder.classList.remove('hidden');
         currentSocket = null;
     };
 
     elements.scanBtn.onclick = () => isScanning ? (currentSocket.close(), resetUI()) : startScan();
+    elements.wifiScanBtn.onclick = () => isScanning ? (currentSocket.close(), resetUI()) : startScan({ surrounding: true });
 
     const renderDeviceRow = (d) => {
         const tr = document.createElement('tr'); 
-        tr.id = `device-row-${d.ip.replace(/\./g, '-')}`;
+        const isWiFi = d.method === "WiFi Scan";
+        const id = (d.ip || d.bssid || '').replace(/[\.:]/g, '-');
+        tr.id = `device-row-${id}`;
         tr.className = 'border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors';
+        
+        const name = isWiFi ? (d.ssid || 'Hidden') : (d.hostname || 'Unknown');
+        const subtext = isWiFi ? (d.vendor || 'Unknown Vendor') : (d.os || 'Generic IoT');
+        const address = d.ip || d.bssid || 'N/A';
+        const metric = isWiFi ? `CH ${d.channel}` : (d.packets || 1);
+        const method = d.method;
+        
+        let riskHtml = '';
+        if (isWiFi) {
+            const isUnsecured = (d.security || '').toLowerCase().includes('open');
+            riskHtml = `<span class="px-3 py-1 rounded-full bg-white/5 border border-white/10 ${isUnsecured ? 'text-red-400' : 'text-green-400'} text-[10px] font-bold">${d.security}</span>`;
+        } else {
+            riskHtml = `<span class="px-3 py-1 rounded-full bg-white/5 border border-white/10 ${d.risk_score > 0 ? 'text-red-400' : 'text-green-400'} text-[10px] font-bold">${d.risk_score > 0 ? `${(d.vulnerabilities || []).length} CVEs` : 'Secure'}</span>`;
+        }
+
         tr.innerHTML = `
-            <td class="px-6 py-4"><div><span class="font-bold text-white">${d.hostname || 'Unknown'}</span><p class="text-[9px] text-slate-500 uppercase">${d.os || 'Generic IoT'}</p></div></td>
-            <td class="px-6 py-4"><span class="font-mono text-blue-400 text-xs">${d.ip}</span></td>
-            <td class="px-6 py-4 text-center packet-count font-bold text-slate-300 font-mono">${d.packets || 1}</td>
-            <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded bg-blue-500/10 text-blue-400 text-[9px] font-bold uppercase tracking-tighter">${d.method}</span></td>
-            <td class="px-6 py-4 text-center"><span class="px-3 py-1 rounded-full bg-white/5 border border-white/10 ${d.risk_score > 0 ? 'text-red-400' : 'text-green-400'} text-[10px] font-bold">${d.risk_score > 0 ? `${d.vulnerabilities.length} CVEs` : 'Secure'}</span></td>
+            <td class="px-6 py-4"><div><span class="font-bold text-white">${name}</span><p class="text-[9px] text-slate-500 uppercase">${subtext}</p></div></td>
+            <td class="px-6 py-4"><span class="font-mono text-blue-400 text-xs">${address}</span></td>
+            <td class="px-6 py-4 text-center packet-count font-bold text-slate-300 font-mono">${metric}</td>
+            <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded bg-blue-500/10 text-blue-400 text-[9px] font-bold uppercase tracking-tighter">${method}</span></td>
+            <td class="px-6 py-4 text-center">${riskHtml}</td>
         `;
         tr.onclick = () => renderDetails(d);
         elements.deviceTableBody.appendChild(tr);
     };
 
     const addNodeToTopology = (d) => {
-        const isGW = d.ip.endsWith('.1') || (d.hostname && d.hostname.toLowerCase().includes('router'));
-        const nodeClasses = (isGW ? 'gateway ' : '') + (d.risk_score > 0 ? 'high-risk' : '');
+        const id = d.ip || d.bssid;
+        const isGW = (d.ip && (d.ip.endsWith('.1') || (d.hostname && d.hostname.toLowerCase().includes('router'))));
+        const nodeClasses = (isGW ? 'gateway ' : '') + ((d.risk_score > 0 || (d.security && d.security.toLowerCase().includes('open'))) ? 'high-risk' : '');
         
         const node = cy.add({ 
             group: 'nodes', 
-            data: { id: d.ip, device: d }, 
+            data: { id: id, device: d }, 
             classes: nodeClasses
         });
 
@@ -502,60 +535,101 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderDetails = (device) => {
         if (!device) return; 
+        const isWiFi = device.method === "WiFi Scan";
         elements.detailPlaceholder.classList.add('hidden'); 
         elements.deviceContent.classList.remove('hidden');
         elements.detailCard.classList.add('open');
 
-        const svcs = Object.entries(device.services || {}).map(([p, info]) => `
-            <div class="p-3 rounded-xl bg-white/5 border border-white/10 hover:border-blue-500/30 transition-all">
-                <div class="flex justify-between text-[9px] font-bold mb-1"><span class="text-blue-400">Port ${p}</span><span>${info.name}</span></div>
-                <div class="text-[10px] font-mono text-slate-400 truncate">${info.banner || 'No banner identified'}</div>
-            </div>
-        `).join('');
-
-        const vulns = (device.vulnerabilities || []).map(v => `
-            <div class="p-4 rounded-xl bg-red-500/5 border border-red-500/20 mb-2 group hover:bg-red-500/10 transition-all">
-                <div class="flex justify-between items-center mb-1">
-                    <span class="text-[10px] font-bold text-red-400">${v.cve}</span>
-                    <span class="badge badge-${v.severity.toLowerCase()}">${v.severity}</span>
+        let content = '';
+        if (isWiFi) {
+            content = `
+                <div class="flex items-center gap-4 mb-6 animate-slide-in">
+                    <div class="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400 text-xl font-bold border border-purple-500/20">
+                        <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12,21L15.6,16.2C14.6,15.45 13.35,15 12,15C10.65,15 9.4,15.45 8.4,16.2L12,21M12,3C7.95,3 4.21,4.34 1.2,6.6L3,9C5.5,7.12 8.62,6 12,6C15.38,6 18.5,7.12 21,9L22.8,6.6C19.79,4.34 16.05,3 12,3M12,9C9.3,9 6.81,9.89 4.8,11.4L6.6,13.8C8.1,12.67 9.97,12 12,12C14.03,12 15.9,12.67 17.4,13.8L19.2,11.4C17.19,9.89 14.7,9 12,9Z"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white text-lg">${device.ssid || 'Hidden Network'}</h3>
+                        <p class="text-[10px] text-purple-400 uppercase tracking-widest font-bold">WiFi Access Point</p>
+                    </div>
                 </div>
-                <p class="text-[10px] text-slate-300 leading-relaxed">${v.description}</p>
-            </div>
-        `).join('');
-
-        elements.deviceContent.innerHTML = `
-            <div class="flex items-center gap-4 mb-6 animate-slide-in">
-                <div class="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-xl font-bold border border-blue-500/20">${device.ip.split('.').pop()}</div>
-                <div>
-                    <h3 class="font-bold text-white text-lg">${device.hostname || 'Unknown Device'}</h3>
-                    <p class="text-[10px] text-blue-400 uppercase tracking-widest font-bold">${device.os || 'Generic IoT'}</p>
-                </div>
-            </div>
-            <div class="space-y-6 animate-slide-in" style="animation-delay: 0.1s">
-                <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-6 animate-slide-in" style="animation-delay: 0.1s">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Signal</p>
+                            <p class="text-xs font-bold text-purple-400">${device.signal}</p>
+                        </div>
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Channel</p>
+                            <p class="text-xs font-bold text-white">${device.channel} (${device.band})</p>
+                        </div>
+                    </div>
+                    <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                        <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Security</p>
+                        <p class="text-xs font-bold text-white">${device.security}</p>
+                    </div>
+                    <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                        <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">BSSID</p>
+                        <p class="text-xs font-mono text-white">${device.bssid}</p>
+                    </div>
                     <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
                         <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Vendor</p>
-                        <p class="text-xs font-bold truncate">${device.vendor || 'Unknown'}</p>
+                        <p class="text-xs font-bold text-white">${device.vendor}</p>
+                    </div>
+                </div>
+            `;
+        } else {
+            const svcs = Object.entries(device.services || {}).map(([p, info]) => `
+                <div class="p-3 rounded-xl bg-white/5 border border-white/10 hover:border-blue-500/30 transition-all">
+                    <div class="flex justify-between text-[9px] font-bold mb-1"><span class="text-blue-400">Port ${p}</span><span>${info.name}</span></div>
+                    <div class="text-[10px] font-mono text-slate-400 truncate">${info.banner || 'No banner identified'}</div>
+                </div>
+            `).join('');
+
+            const vulns = (device.vulnerabilities || []).map(v => `
+                <div class="p-4 rounded-xl bg-red-500/5 border border-red-500/20 mb-2 group hover:bg-red-500/10 transition-all">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[10px] font-bold text-red-400">${v.cve}</span>
+                        <span class="badge badge-${v.severity.toLowerCase()}">${v.severity}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-300 leading-relaxed">${v.description}</p>
+                </div>
+            `).join('');
+
+            content = `
+                <div class="flex items-center gap-4 mb-6 animate-slide-in">
+                    <div class="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-xl font-bold border border-blue-500/20">${device.ip.split('.').pop()}</div>
+                    <div>
+                        <h3 class="font-bold text-white text-lg">${device.hostname || 'Unknown Device'}</h3>
+                        <p class="text-[10px] text-blue-400 uppercase tracking-widest font-bold">${device.os || 'Generic IoT'}</p>
+                    </div>
+                </div>
+                <div class="space-y-6 animate-slide-in" style="animation-delay: 0.1s">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Vendor</p>
+                            <p class="text-xs font-bold truncate">${device.vendor || 'Unknown'}</p>
+                        </div>
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Risk Pts</p>
+                            <p class="text-xs font-bold text-red-400">${device.risk_score || 0}</p>
+                        </div>
                     </div>
                     <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
-                        <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Risk Pts</p>
-                        <p class="text-xs font-bold text-red-400">${device.risk_score || 0}</p>
+                        <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Hardware ID</p>
+                        <p class="text-xs font-mono text-white">${device.mac || 'Unknown'}</p>
+                    </div>
+                    <div class="space-y-2">
+                        <p class="text-[9px] text-slate-500 px-1 uppercase font-bold tracking-widest">Detected Exploits</p>
+                        ${vulns || '<p class="text-[10px] italic text-slate-600 px-1">No known vulnerabilities detected.</p>'}
+                    </div>
+                    <div class="space-y-2 pb-6">
+                        <p class="text-[9px] text-slate-500 px-1 uppercase font-bold tracking-widest">Active Services</p>
+                        <div class="grid grid-cols-1 gap-2">${svcs || '<p class="text-[10px] italic text-slate-600 px-1">No open services found.</p>'}</div>
                     </div>
                 </div>
-                <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
-                    <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Hardware ID</p>
-                    <p class="text-xs font-mono text-white">${device.mac || 'Unknown'}</p>
-                </div>
-                <div class="space-y-2">
-                    <p class="text-[9px] text-slate-500 px-1 uppercase font-bold tracking-widest">Detected Exploits</p>
-                    ${vulns || '<p class="text-[10px] italic text-slate-600 px-1">No known vulnerabilities detected.</p>'}
-                </div>
-                <div class="space-y-2 pb-6">
-                    <p class="text-[9px] text-slate-500 px-1 uppercase font-bold tracking-widest">Active Services</p>
-                    <div class="grid grid-cols-1 gap-2">${svcs || '<p class="text-[10px] italic text-slate-600 px-1">No open services found.</p>'}</div>
-                </div>
-            </div>
-        `;
+            `;
+        }
+        elements.deviceContent.innerHTML = content;
     };
 
     // Export Handlers
