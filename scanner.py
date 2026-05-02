@@ -38,6 +38,7 @@ COMMON_SUBNETS = [
 
 mac_lookup = AsyncMacLookup()
 port_semaphore = asyncio.Semaphore(60)
+device_semaphore = asyncio.Semaphore(10) # Limit concurrent device analysis
 
 async def _unknown_vendor():
     return "Unknown"
@@ -199,6 +200,7 @@ class DiscoveryManager:
         self.active_engine = ActiveEngine()
         self.discovered_ips = set()
         self.passive_engine = None
+        self._is_scanning = False
 
     def validate_input(self, cidr: str, interface: str):
         if cidr:
@@ -214,7 +216,8 @@ class DiscoveryManager:
 
     async def get_hostname(self, ip: str) -> str:
         try:
-            hostname, _, _ = await asyncio.to_thread(socket.gethostbyaddr, ip)
+            # FIX: Added timeout to prevent long hangs on slow DNS
+            hostname, _, _ = await asyncio.wait_for(asyncio.to_thread(socket.gethostbyaddr, ip), timeout=3.0)
             return hostname
         except: return "Unknown"
 
@@ -257,19 +260,43 @@ class DiscoveryManager:
     async def scan_network(self, cidr: str, interface: str = None, speed: str = "Normal", passive: bool = False) -> AsyncGenerator[Dict[str, Any], None]:
         try:
             if not cidr and not passive:
-                yield {"type": "status", "state": "Auto-Discovery", "message": "No subnet provided. Scanning common ranges...", "progress": 5}
-                for i, subnet in enumerate(COMMON_SUBNETS):
-                    yield {"type": "status", "state": f"Discovery {i+1}/{len(COMMON_SUBNETS)}", "message": f"Probing {subnet}...", "progress": 5 + (i/len(COMMON_SUBNETS)*20)}
+                yield {"type": "status", "state": "Auto-Discovery", "message": "No subnet provided. Detecting local ranges...", "progress": 5}
+                
+                # Dynamic Subnet Detection: Check all active interfaces first
+                local_ranges = []
+                for iface in self.interface_mgr.get_interfaces():
+                    if iface.get("cidr"):
+                        local_ranges.append(iface["cidr"])
+                
+                # Combine detected ranges with common subnets, preserving order
+                ranges_to_scan = list(dict.fromkeys(local_ranges + COMMON_SUBNETS))
+                
+                all_enriched = []
+                if not ranges_to_scan:
+                    yield {"type": "status", "state": "Error", "message": "No active network interfaces found.", "progress": 100}
+                    return
+
+                for i, subnet in enumerate(ranges_to_scan):
+                    current_prog = 5 + int((i/len(ranges_to_scan))*90)
+                    yield {"type": "status", "state": "Auto-Discovery", "message": f"Scanning {subnet} ({i+1}/{len(ranges_to_scan)})", "progress": current_prog}
                     async for result in self._scan_range(subnet, interface, speed="Fast"):
-                        yield result
+                        if result["type"] == "final_data":
+                            all_enriched.extend(result["data"])
+                        elif result["type"] != "status" or result["state"] != "Completed":
+                            yield result
+                
+                yield {"type": "status", "state": "Completed", "message": f"Auto-Discovery finished. Total {len(all_enriched)} devices identified.", "progress": 100}
+                yield {"type": "final_data", "data": all_enriched}
                 return
 
             if passive:
-                yield {"type": "status", "state": "Passive Monitoring", "message": "Listening for ARP traffic (Passive Mode)...", "progress": 50}
+                yield {"type": "status", "state": "Passive Monitoring", "message": "Listening for ARP traffic (Passive Mode)...", "progress": 100}
                 return
 
             async for result in self._scan_range(cidr, interface, speed):
                 yield result
+            
+            yield {"type": "status", "state": "Completed", "message": "Scan finished.", "progress": 100}
 
         except Exception as e:
             logger.error(f"Scan Failure: {e}")
@@ -277,27 +304,49 @@ class DiscoveryManager:
 
     async def _scan_range(self, cidr, interface, speed):
         self.validate_input(cidr, interface)
-        yield {"type": "status", "state": "ARP Sweep", "message": "Probing subnet for active hosts...", "progress": 10}
-        start_time = time.time()
+        self.discovered_ips.clear() # FIX: Reset discovered IPs for every fresh scan
+        
+        yield {"type": "status", "state": "ARP Sweep", "message": f"Probing {cidr} for active hosts...", "progress": 10}
         self.active_engine.interface = interface
         active_devices = await self.active_engine.arp_sweep(cidr, speed)
-        yield {"type": "status", "state": "Enrichment", "message": "Hosts found. Starting deep analysis...", "progress": 35}
-        num_devices = len(active_devices)
-        enriched_devices = []
-        for i, dev in enumerate(active_devices):
-            if dev['ip'] in self.discovered_ips: continue
+        
+        if not active_devices:
+            yield {"type": "status", "state": "Completed", "message": "No devices found in this range.", "progress": 100}
+            yield {"type": "final_data", "data": []}
+            return
+
+        yield {"type": "status", "state": "Enrichment", "message": f"Found {len(active_devices)} hosts. Starting parallel analysis...", "progress": 35}
+        
+        async def enrich_device(dev, index, total):
+            if dev['ip'] in self.discovered_ips: return None
             self.discovered_ips.add(dev['ip'])
-            prog = 40 + int((i/max(1, num_devices))*55)
-            yield {"type": "status", "state": "Enrichment", "message": f"Analyzing {dev['ip']}...", "progress": prog}
-            host_task = self.get_hostname(dev['ip'])
-            vendor_task = get_vendor_safe(dev['mac'])
-            recon_task = self.perform_recon(dev['ip'])
-            host, vendor, recon = await asyncio.gather(host_task, vendor_task, recon_task)
-            os_name = self.detect_os(dev.get('ttl'), recon['ports'], host)
-            final_dev = {**dev, "hostname": host, "vendor": vendor, "os": os_name, **recon}
-            yield {"type": "device", "data": final_dev}
-            enriched_devices.append(final_dev)
-        yield {"type": "status", "state": "Completed", "message": "Reconnaissance finished.", "progress": 100}
+            
+            async with device_semaphore:
+                # Update progress for this specific device start
+                prog = 40 + int((index/total)*55)
+                # We can't yield from here as it's not a generator, but we can return data
+                host_task = self.get_hostname(dev['ip'])
+                vendor_task = get_vendor_safe(dev['mac'])
+                recon_task = self.perform_recon(dev['ip'])
+                
+                host, vendor, recon = await asyncio.gather(host_task, vendor_task, recon_task)
+                os_name = self.detect_os(dev.get('ttl'), recon['ports'], host)
+                return {**dev, "hostname": host, "vendor": vendor, "os": os_name, **recon}
+
+        # Create tasks for all devices
+        tasks = [enrich_device(dev, i, len(active_devices)) for i, dev in enumerate(active_devices)]
+        
+        # We want to yield as they complete to show progress in UI
+        enriched_devices = []
+        for completed_task in asyncio.as_completed(tasks):
+            final_dev = await completed_task
+            if final_dev:
+                enriched_devices.append(final_dev)
+                yield {"type": "device", "data": final_dev}
+                # Update progress based on how many have finished
+                prog = 40 + int((len(enriched_devices)/len(active_devices))*55)
+                yield {"type": "status", "state": "Enrichment", "message": f"Analyzed {final_dev['ip']}...", "progress": prog}
+
         yield {"type": "final_data", "data": enriched_devices}
 
 discovery_manager = DiscoveryManager()

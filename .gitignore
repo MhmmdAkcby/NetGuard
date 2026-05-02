@@ -1,14 +1,41 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment and Local Config
+.env
+config.json
+*.local
+
+# Database and Storage
+*.db
+*.sqlite3
+network_scans.db
+test_network.db
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Testing and Coverage
 .pytest_cache/
 .coverage
 htmlcov/
-*.db
-network_scans.db
-test_network.db
-config.json
-.env
+.tox/
+.nox/
+
+# IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Logs
 *.log
