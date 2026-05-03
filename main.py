@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from scanner import scan_network_stream, update_mac_database, get_interfaces, DiscoveryManager, discovery_manager, scan_surrounding_networks_stream
 from database import init_db, save_scan_results, get_latest_scans, get_alerts, save_alert, get_latest_full_scan, save_network_health, save_config, get_config
 from cve_updater import update_cve_database, get_cve_stats
+from ids_engine import IDSEngine
 
 # --- SSE Event Queue ---
 event_queue = asyncio.Queue()
@@ -36,10 +37,28 @@ async def scheduled_scan():
             for alert in alerts: await event_queue.put(alert)
             await save_scan_results(update["data"])
 
+# --- IDS Initialization ---
+async def handle_ids_alert(alert):
+    logger.warning(f"IDS ALERT: {alert['msg']}")
+    # Save to database
+    await save_alert(alert['sev'], alert['type'], alert['msg'], alert['ip'])
+    # Push to SSE
+    await event_queue.put(alert)
+
+ids_engine = IDSEngine(handle_ids_alert)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await update_mac_database()
+    
+    # Start IDS
+    try:
+        interface = await get_config("last_interface")
+        ids_engine.start(interface)
+    except Exception as e:
+        logger.error(f"Failed to start IDS: {e}")
+
     interval = int(await get_config("scan_interval", "5"))
     scheduler.add_job(scheduled_scan, 'interval', minutes=interval, id="scheduled_scan", replace_existing=True)
     scheduler.add_job(update_cve_database, 'interval', hours=24, id="cve_update", replace_existing=True)
