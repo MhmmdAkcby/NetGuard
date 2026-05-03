@@ -429,13 +429,77 @@ class DiscoveryManager:
                 return port, {"name": name, "banner": banner[:200]}
             except: return None, None
 
-    def detect_os(self, ttl, ports, hostname) -> str:
+    async def _tcp_fingerprint(self, ip: str, open_ports: List[int]) -> Dict[str, Any]:
+        """Performs TCP stack analysis by sending a SYN packet and analyzing the SYN-ACK response."""
+        if not open_ports:
+            return {}
+        
+        target_port = open_ports[0] # Use the first available open port
+        try:
+            # Send SYN packet
+            syn_pkt = IP(dst=ip)/TCP(dport=target_port, flags="S", options=[('MSS', 1460), ('SAckOK', ''), ('WScale', 7)])
+            resp = await asyncio.to_thread(sr1, syn_pkt, timeout=1.5, verbose=False)
+            
+            if resp and TCP in resp:
+                tcp_layer = resp[TCP]
+                opts = dict(tcp_layer.options)
+                
+                return {
+                    "win": tcp_layer.window,
+                    "ttl": resp.ttl,
+                    "opts": list(opts.keys()),
+                    "mss": opts.get('MSS'),
+                    "wscale": opts.get('WScale'),
+                    "sack": 'SAckOK' in opts
+                }
+        except: pass
+        return {}
+
+    def detect_os(self, ttl, ports, hostname, tcp_fp=None) -> str:
         h = hostname.lower()
+        ports_set = set(ports)
+        
+        # 1. Hostname Heuristics
         if "iphone" in h or "ipad" in h: return "iOS Device"
         if "android" in h: return "Android"
-        if "windows" in h or 3389 in ports: return "Windows"
-        if ttl and ttl <= 64: return "Linux/Unix"
-        if ttl and ttl > 200: return "Router/Gateway"
+        if "windows" in h: return "Windows"
+        if "linux" in h: return "Linux"
+        
+        # 2. TCP Stack Analysis (Most Accurate)
+        if tcp_fp:
+            win = tcp_fp.get("win", 0)
+            ttl = tcp_fp.get("ttl", ttl)
+            opts = tcp_fp.get("opts", [])
+            
+            # Windows 10 / 11 / Server 2016+
+            if win in [64240, 8192, 65535] and ttl in [128, 64]:
+                if 445 in ports_set or 3389 in ports_set:
+                    # Windows 11 often has specific services or slightly different padding
+                    # but usually fingerprints as NT 10.0
+                    return "Windows 10/11"
+                return "Windows (Modern)"
+            
+            # Linux (Modern Kernel)
+            if win in [29200, 5840, 64240] and ttl <= 64:
+                if 'Timestamp' in opts: return "Linux (Modern Kernel)"
+                return "Linux"
+
+            # MacOS / iOS
+            if win == 65535 and 'WScale' in opts and ttl <= 64:
+                return "macOS/iOS"
+
+        # 3. Port & TTL Fallback
+        if 3389 in ports_set or 445 in ports_set: return "Windows"
+        if 22 in ports_set and ttl <= 64: return "Linux/Unix"
+        if 80 in ports_set or 443 in ports_set:
+            if ttl <= 64: return "Linux/Web Server"
+            if ttl > 200: return "Network Appliance"
+            
+        if ttl:
+            if ttl <= 64: return "Linux/Unix"
+            if ttl <= 128: return "Windows"
+            if ttl > 200: return "Router/Gateway"
+            
         return "Generic IoT"
 
     async def scan_network(self, cidr: str, interface: str = None, speed: str = "Normal", passive: bool = False) -> AsyncGenerator[Dict[str, Any], None]:
@@ -515,7 +579,11 @@ class DiscoveryManager:
                 recon_task = self.perform_recon(dev['ip'])
                 
                 host, vendor, recon = await asyncio.gather(host_task, vendor_task, recon_task)
-                os_name = self.detect_os(dev.get('ttl'), recon['ports'], host)
+                
+                # Perform Advanced TCP Fingerprinting if ports are open
+                tcp_fp = await self._tcp_fingerprint(dev['ip'], recon['ports'])
+                os_name = self.detect_os(dev.get('ttl'), recon['ports'], host, tcp_fp)
+                
                 return {**dev, "hostname": host, "vendor": vendor, "os": os_name, **recon}
 
         # Create tasks for all devices
