@@ -18,6 +18,7 @@ from scanner import scan_network_stream, update_mac_database, get_interfaces, Di
 from database import init_db, save_scan_results, get_latest_scans, get_alerts, save_alert, get_latest_full_scan, save_network_health, save_config, get_config
 from cve_updater import update_cve_database, get_cve_stats
 from ids_engine import IDSEngine
+from security_engine import security_engine
 
 # --- SSE Event Queue ---
 event_queue = asyncio.Queue()
@@ -56,8 +57,13 @@ async def lifespan(app: FastAPI):
     try:
         interface = await get_config("last_interface")
         ids_engine.start(interface)
+        
+        # Initialize Security Engine
+        # Wait a moment for IDS to find gateway or pull from config
+        await asyncio.sleep(2)
+        security_engine.set_config(ids_engine.interface, ids_engine.gateway_ip)
     except Exception as e:
-        logger.error(f"Failed to start IDS: {e}")
+        logger.error(f"Failed to start Security Services: {e}")
 
     interval = int(await get_config("scan_interval", "5"))
     scheduler.add_job(scheduled_scan, 'interval', minutes=interval, id="scheduled_scan", replace_existing=True)
@@ -173,6 +179,32 @@ async def trigger_cve_update():
 @app.get("/api/bandwidth")
 async def api_bandwidth():
     return {"status": "success", "data": ids_engine.get_bandwidth_stats()}
+
+@app.post("/api/security/block")
+async def api_block_device(request: Request):
+    body = await request.json()
+    ip = body.get("ip")
+    mac = body.get("mac")
+    if not ip or not mac: raise HTTPException(400, "IP and MAC required")
+    
+    # Sync gateway just in case it changed
+    security_engine.set_config(ids_engine.interface, ids_engine.gateway_ip)
+    
+    success = security_engine.start_blocking(ip, mac)
+    return {"status": "success" if success else "failed"}
+
+@app.post("/api/security/unblock")
+async def api_unblock_device(request: Request):
+    body = await request.json()
+    ip = body.get("ip")
+    if not ip: raise HTTPException(400, "IP required")
+    
+    success = security_engine.stop_blocking(ip)
+    return {"status": "success" if success else "failed"}
+
+@app.get("/api/security/status")
+async def api_security_status():
+    return {"status": "success", "blocked_devices": list(security_engine.blocking_tasks.keys())}
 
 @app.get("/api/cve/stats")
 async def api_cve_stats():

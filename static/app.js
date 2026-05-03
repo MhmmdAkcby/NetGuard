@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isScanning = false;
     let bandwidthChart = null;
     let bandwidthInterval = null;
+    let blockedDevices = [];
 
     // Pagination State
     let alertPage = 1;
@@ -149,6 +150,17 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { console.error("Init error:", e); }
     };
     init();
+
+    // --- Security Status Sync ---
+    const fetchSecurityStatus = async () => {
+        try {
+            const resp = await fetch('/api/security/status');
+            const result = await resp.json();
+            if (result.status === 'success') blockedDevices = result.blocked_devices;
+        } catch (e) {}
+    };
+    setInterval(fetchSecurityStatus, 5000);
+    fetchSecurityStatus();
 
     elements.interfaceSelect.onchange = () => {
         const sel = elements.interfaceSelect.options[elements.interfaceSelect.selectedIndex];
@@ -598,6 +610,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-xs font-bold text-red-400">${device.risk_score || 0}</p>
                         </div>
                     </div>
+                    
+                    ${device.ip ? `
+                    <div id="blockActionContainer">
+                        <button id="blockBtn" class="w-full py-3 rounded-xl font-bold text-[10px] uppercase transition-all ${blockedDevices.includes(device.ip) ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10'}">
+                            ${blockedDevices.includes(device.ip) ? 'Device Blocked - Tap to Unblock' : 'Security Action: Block Internet Access'}
+                        </button>
+                        <p class="text-[8px] text-slate-600 text-center mt-2 uppercase tracking-widest px-4">Disrupts connection via ARP Poisoning. Use for security mitigation only.</p>
+                    </div>
+                    ` : ''}
+
                     <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
                         <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Hardware ID</p>
                         <p class="text-xs font-mono text-white">${device.mac || 'Unknown'}</p>
@@ -614,6 +636,33 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
         }
         elements.deviceContent.innerHTML = content;
+        
+        // Attach block handler if IP exists
+        if (device.ip) {
+            const btn = document.getElementById('blockBtn');
+            if (btn) {
+                btn.onclick = async () => {
+                    const isBlocked = blockedDevices.includes(device.ip);
+                    const endpoint = isBlocked ? '/api/security/unblock' : '/api/security/block';
+                    btn.textContent = "Processing...";
+                    btn.disabled = true;
+                    
+                    try {
+                        const resp = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ip: device.ip, mac: device.mac })
+                        });
+                        const result = await resp.json();
+                        if (result.status === 'success') {
+                            await fetchSecurityStatus();
+                            renderDetails(device); // Re-render to update button
+                        }
+                    } catch (e) { console.error("Block error:", e); }
+                    finally { btn.disabled = false; }
+                };
+            }
+        }
     };
 
     // Export Handlers
