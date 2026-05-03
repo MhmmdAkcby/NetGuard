@@ -62,7 +62,9 @@ document.addEventListener('DOMContentLoaded', () => {
         nextHistory: document.getElementById('nextHistory')
     };
 
-    let cy = null;
+    let network = null;
+    let nodes = new vis.DataSet([]);
+    let edges = new vis.DataSet([]);
     let lastScanData = [];
     let currentSocket = null;
     let isScanning = false;
@@ -79,10 +81,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         activeBtn.classList.add('tab-active');
         document.getElementById(viewId).classList.remove('hidden');
-        if (viewId === 'reconView' && cy) {
+        if (viewId === 'reconView' && network) {
             setTimeout(() => {
-                cy.resize();
-                cy.fit();
+                network.fit();
             }, 100);
         }
     };
@@ -139,103 +140,58 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sel.dataset.cidr) elements.subnetInput.value = sel.dataset.cidr;
     };
 
-    // --- Cytoscape Init ---
-    const initCy = () => {
-        // Icon definitions (SVG strings)
-        const icons = {
-            router: 'data:image/svg+xml;utf8,<svg fill="%233b82f6" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z"/></svg>',
-            mobile: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17,19H7V5H17M17,1H7C5.89,1 5,1.89 5,3V21C5,22.11 5.89,23 7,23H17C18.11,23 19,22.11 19,21V3C19,1.89 18.11,1 17,1Z"/></svg>',
-            desktop: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21,14H3V4H21M21,2H3C1.89,2 1,2.89 1,4V16C1,17.11 1.89,18 3,18H10V20H8V22H16V20H14V18H21C22.11,18 23,17.11 23,16V4C23,2.89 22.11,2 21,2Z"/></svg>',
-            server: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19,15H5V13H19M19,11H5V9H19M19,7H5V5H19M19,3H5C3.89,3 3,3.89 3,5V19C3,20.11 3.89,21 5,21H19C20.11,21 21,20.11 21,19V5C21,3.89 20.11,3 19,3Z"/></svg>',
-            iot: 'data:image/svg+xml;utf8,<svg fill="%2394a3b8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/></svg>',
-            wifi: 'data:image/svg+xml;utf8,<svg fill="%23a855f7" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12,21L15.6,16.2C14.6,15.45 13.35,15 12,15C10.65,15 9.4,15.45 8.4,16.2L12,21M12,3C7.95,3 4.21,4.34 1.2,6.6L3,9C5.5,7.12 8.62,6 12,6C15.38,6 18.5,7.12 21,9L22.8,6.6C19.79,4.34 16.05,3 12,3M12,9C9.3,9 6.81,9.89 4.8,11.4L6.6,13.8C8.1,12.67 9.97,12 12,12C14.03,12 15.9,12.67 17.4,13.8L19.2,11.4C17.19,9.89 14.7,9 12,9Z"/></svg>'
+    // --- vis-network Init ---
+    const initNetwork = () => {
+        const container = document.getElementById('topology');
+        const data = { nodes, edges };
+        const options = {
+            nodes: {
+                shape: 'dot',
+                size: 25,
+                font: { size: 12, color: '#94a3b8', face: 'Outfit', strokeWidth: 0 },
+                borderWidth: 2,
+                shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 10, x: 5, y: 5 }
+            },
+            edges: {
+                width: 2,
+                color: { color: 'rgba(59, 130, 246, 0.3)', highlight: '#3b82f6', hover: '#60a5fa' },
+                smooth: { type: 'continuous' },
+                font: { size: 9, color: '#64748b', align: 'middle', face: 'JetBrains Mono' }
+            },
+            physics: {
+                enabled: true,
+                barnesHut: { gravitationalConstant: -2000, centralGravity: 0.3, springLength: 150 },
+                stabilization: { iterations: 150 }
+            },
+            interaction: { hover: true, tooltipDelay: 200 }
         };
 
-        cy = cytoscape({
-            container: document.getElementById('topology'),
-            style: [
-                { selector: 'node', style: { 
-                    'background-color': '#1e293b', 
-                    'label': 'data(id)', 
-                    'color': '#94a3b8', 
-                    'font-size': '10px', 
-                    'text-valign': 'bottom', 
-                    'width': 40, 
-                    'height': 40, 
-                    'border-width': 2, 
-                    'border-color': '#334155', 
-                    'text-margin-y': '8px',
-                    'font-weight': '600',
-                    'background-image': (node) => {
-                        const d = node.data('device');
-                        if (d.method === "WiFi Scan") return icons.wifi;
-                        const h = (d.hostname || '').toLowerCase();
-                        const os = (d.os || '').toLowerCase();
-                        if (node.hasClass('gateway')) return icons.router;
-                        if (os.includes('android') || os.includes('ios') || h.includes('phone') || h.includes('pad')) return icons.mobile;
-                        if (os.includes('linux') || h.includes('server')) return icons.server;
-                        if (os.includes('windows')) return icons.desktop;
-                        return icons.iot;
-                    },
-                    'background-width': '60%',
-                    'background-height': '60%',
-                    'transition-property': 'background-color, border-color, width, height, opacity',
-                    'transition-duration': '0.3s',
-                    'opacity': 0 // For entrance animation
-                } },
-                { selector: 'edge', style: { 
-                    'width': 2, 
-                    'line-color': 'rgba(59, 130, 246, 0.4)', 
-                    'curve-style': 'bezier', 
-                    'target-arrow-shape': 'none',
-                    'line-style': 'solid',
-                    'opacity': 0.3
-                } },
-                { selector: '.gateway', style: { 
-                    'background-color': '#2563eb', 
-                    'width': 55, 
-                    'height': 55, 
-                    'border-color': '#60a5fa', 
-                    'border-width': 3,
-                    'shadow-blur': '20px', 
-                    'shadow-color': '#3b82f6',
-                    'shadow-opacity': 0.6
-                } },
-                { selector: '.high-risk', style: { 
-                    'border-color': '#ef4444', 
-                    'border-width': 4,
-                    'background-color': '#450a0a',
-                    'shadow-blur': '15px',
-                    'shadow-color': '#ef4444',
-                    'shadow-opacity': 0.5
-                } },
-                { selector: '.edge-pulse', style: {
-                    'width': 3,
-                    'line-color': '#3b82f6',
-                    'opacity': 1,
-                    'line-style': 'dashed'
-                } }
-            ],
-            layout: { 
-                name: 'concentric',
-                padding: 60,
-                animate: true,
-                concentric: function(node) { return node.hasClass('gateway') ? 2 : 1; },
-                levelWidth: function() { return 1; }
-            },
-            userZoomingEnabled: true,
-            userPanningEnabled: true
-        });
+        network = new vis.Network(container, data, options);
 
-        cy.on('tap', 'node', (e) => renderDetails(e.target.data('device')));
-        
-        // Pulse effect for edges
-        setInterval(() => {
-            cy.edges().addClass('edge-pulse');
-            setTimeout(() => cy.edges().removeClass('edge-pulse'), 1000);
-        }, 3000);
+        network.on("click", (params) => {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                const nodeData = nodes.get(nodeId);
+                if (nodeData && nodeData.device) renderDetails(nodeData.device);
+            }
+        });
     };
-    initCy();
+    initNetwork();
+
+    // Helper for icons based on device info
+    const getDeviceIcon = (d) => {
+        const h = (d.hostname || '').toLowerCase();
+        const os = (d.os || '').toLowerCase();
+        const isWiFi = d.method === "WiFi Scan";
+        
+        if (isWiFi) return { shape: 'icon', icon: { face: '"Font Awesome 5 Free"', code: '\uf1eb', color: '#a855f7' } }; // Use unicode if FontAwesome is loaded, else use SVG or shapes
+        
+        // Using built-in shapes with colors for premium look since FA might not be here
+        if (d.ip && (d.ip.endsWith('.1') || h.includes('router'))) return { color: { background: '#2563eb', border: '#60a5fa' }, size: 35 }; // Router
+        if (os.includes('android') || os.includes('ios') || h.includes('phone')) return { color: { background: '#1e293b', border: '#94a3b8' } }; // Mobile
+        if (os.includes('windows') || h.includes('desktop')) return { color: { background: '#1e293b', border: '#3b82f6' } }; // PC
+        return { color: { background: '#0f172a', border: '#334155' } };
+    };
 
     const renderAlert = (alert, append = false) => {
         const div = document.createElement('div');
@@ -287,7 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('reconView').classList.add('glitch-flash');
         setTimeout(() => document.getElementById('reconView').classList.remove('glitch-flash'), 400);
         
-        if (cy) { cy.elements().remove(); cy.resize(); }
+        if (network) { nodes.clear(); edges.clear(); }
         document.getElementById('topology').classList.add('scanning');
         
         if (surrounding) {
@@ -316,8 +272,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 elements.progressPercent.textContent = `${msg.progress}%`;
                 if (msg.state === 'Completed') {
                     resetUI();
-                    cy.layout({ name: 'concentric', animate: true, padding: 60 }).run();
-                    setTimeout(() => cy.fit(), 500);
+                    if (network) network.fit({ animation: true });
                 }
             } else if (msg.type === 'device') {
                 updateOrAddDevice(msg.data);
@@ -344,10 +299,6 @@ document.addEventListener('DOMContentLoaded', () => {
             lastScanData.push(device);
             renderDeviceRow(device);
             addNodeToTopology(device);
-            // Run a quick layout for the first few devices
-            if (lastScanData.length < 5) {
-                cy.layout({ name: 'concentric', animate: true, padding: 30 }).run();
-            }
         }
         elements.noDevicesPlaceholder.classList.add('hidden');
     };
@@ -402,35 +353,53 @@ document.addEventListener('DOMContentLoaded', () => {
     const addNodeToTopology = (d) => {
         const id = d.ip || d.bssid;
         const isGW = (d.ip && (d.ip.endsWith('.1') || (d.hostname && d.hostname.toLowerCase().includes('router'))));
-        const nodeClasses = (isGW ? 'gateway ' : '') + ((d.risk_score > 0 || (d.security && d.security.toLowerCase().includes('open'))) ? 'high-risk' : '');
+        const visual = getDeviceIcon(d);
         
-        const node = cy.add({ 
-            group: 'nodes', 
-            data: { id: id, device: d }, 
-            classes: nodeClasses
-        });
+        const nodeData = {
+            id: id,
+            label: d.hostname || d.ssid || d.ip || d.bssid,
+            device: d,
+            ...visual,
+            title: `<b>${d.hostname || d.ssid || 'Unknown'}</b><br>${d.ip || d.bssid}<br>${d.vendor || ''}`
+        };
 
-        // Entrance Animation
-        node.animate({
-            style: { opacity: 1 },
-            duration: 500
-        });
+        if (d.risk_score > 0 || (d.security && d.security.toLowerCase().includes('open'))) {
+            nodeData.shadow = { enabled: true, color: '#ef4444', size: 15 };
+            nodeData.borderWidth = 3;
+        }
+
+        nodes.update(nodeData);
 
         // Linking Logic
-        if (isGW) {
-            // If we just added the gateway, link ALL existing non-gateway nodes to it
-            cy.nodes().not(node).forEach(n => {
-                if (!cy.edges(`edge[source="${node.id()}"][target="${n.id()}"]`).length && 
-                    !cy.edges(`edge[source="${n.id()}"][target="${node.id()}"]`).length) {
-                    cy.add({ group: 'edges', data: { source: node.id(), target: n.id() } });
+        if (!isGW) {
+            const gwNode = nodes.get({
+                filter: (n) => n.device && (n.device.ip && (n.device.ip.endsWith('.1') || (n.device.hostname && n.device.hostname.toLowerCase().includes('router'))))
+            })[0];
+
+            if (gwNode) {
+                // Determine "Port" label: Use first open port if available
+                let edgeLabel = "";
+                if (d.ports && d.ports.length > 0) {
+                    edgeLabel = `Port ${d.ports[0]}`;
+                } else if (d.method === "WiFi Scan") {
+                    edgeLabel = `CH ${d.channel}`;
+                }
+
+                edges.update({
+                    id: `e-${gwNode.id}-${id}`,
+                    from: gwNode.id,
+                    to: id,
+                    label: edgeLabel,
+                    arrows: 'to'
+                });
+            }
+        } else {
+            // If this is the gateway, link all other nodes TO it
+            nodes.forEach(n => {
+                if (n.id !== id) {
+                    edges.update({ id: `e-${id}-${n.id}`, from: id, to: n.id, arrows: 'to' });
                 }
             });
-        } else {
-            // If we added a normal node, link it to the gateway if it exists
-            const gw = cy.nodes('.gateway').first();
-            if (gw.length) {
-                cy.add({ group: 'edges', data: { source: gw.id(), target: d.ip } });
-            }
         }
     };
 
