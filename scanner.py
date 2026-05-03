@@ -14,7 +14,7 @@ import subprocess
 import os
 import psutil
 from typing import AsyncGenerator, Dict, Any, List, Tuple, Set, Optional
-from scapy.all import ARP, Ether, srp, IP, ICMP, sr1, UDP, DNS, DNSQR, send, sniff, conf
+from scapy.all import ARP, Ether, srp, IP, ICMP, sr1, UDP, TCP, DNS, DNSQR, send, sniff, conf
 from mac_vendor_lookup import AsyncMacLookup
 from vulnerability_engine import detect_vulnerabilities, calculate_cvss_impact
 
