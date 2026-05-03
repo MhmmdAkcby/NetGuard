@@ -218,3 +218,54 @@ async def get_latest_scans(limit=100, offset=0, ip=None, start_date=None, end_da
     except Exception as e:
         logger.error(f"Database fetch error: {e}")
         return {"items": [], "total": 0}
+
+async def get_history_timeline(date_str=None):
+    """Calculates device presence blocks for a specific day."""
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    
+    async with aiosqlite.connect(DB_NAME) as conn:
+        conn.row_factory = aiosqlite.Row
+        # We group by MAC and then identify continuous blocks of time
+        async with conn.execute('''
+            SELECT mac, hostname, ip, scan_time 
+            FROM scan_results 
+            WHERE scan_time LIKE ? 
+            ORDER BY mac, scan_time ASC
+        ''', (f"{date_str}%",)) as cursor:
+            rows = await cursor.fetchall()
+    
+    timeline = {} # {mac: [{"start": t, "end": t, "label": l}]}
+    
+    # Threshold to consider device "offline" (e.g. 15 minutes between scans)
+    GAP_THRESHOLD = 15 * 60 
+    
+    for row in rows:
+        mac = row['mac']
+        # Convert scan_time string to timestamp
+        t = datetime.strptime(row['scan_time'], "%Y-%m-%d %H:%M:%S").timestamp()
+        label = f"{row['hostname'] or 'Unknown'} ({row['ip']})"
+        
+        if mac not in timeline:
+            timeline[mac] = [{"start": t, "end": t, "label": label}]
+        else:
+            last_session = timeline[mac][-1]
+            if t - last_session["end"] <= GAP_THRESHOLD:
+                # Extend current session
+                last_session["end"] = t
+            else:
+                # Start new session
+                timeline[mac].append({"start": t, "end": t, "label": label})
+    
+    # Flatten and format for frontend
+    final_data = []
+    for mac, sessions in timeline.items():
+        for s in sessions:
+            final_data.append({
+                "mac": mac,
+                "label": s["label"],
+                "start": datetime.fromtimestamp(s["start"]).isoformat(),
+                "end": datetime.fromtimestamp(s["end"]).isoformat()
+            })
+    
+    return final_data

@@ -62,7 +62,9 @@ document.addEventListener('DOMContentLoaded', () => {
         historyDateEnd: document.getElementById('historyDateEnd'),
         historyPageInfo: document.getElementById('historyPageInfo'),
         prevHistory: document.getElementById('prevHistory'),
-        nextHistory: document.getElementById('nextHistory')
+        nextHistory: document.getElementById('nextHistory'),
+        timelineDate: document.getElementById('timelineDate'),
+        timelineChart: document.getElementById('timelineChart')
     };
 
     let network = null;
@@ -74,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let bandwidthChart = null;
     let bandwidthInterval = null;
     let blockedDevices = [];
+    let timelineChart = null;
 
     // Pagination State
     let alertPage = 1;
@@ -95,6 +98,11 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchBandwidth();
             bandwidthInterval = setInterval(fetchBandwidth, 2000);
         }
+
+        if (viewId === 'historyView') {
+            initTimelineChart();
+            fetchHistoryTimeline();
+        }
         
         if (viewId === 'reconView' && network) {
             setTimeout(() => {
@@ -105,9 +113,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.showRecon.onclick = () => switchTab(elements.showRecon, 'reconView');
     elements.showSecurity.onclick = () => { switchTab(elements.showSecurity, 'securityView'); fetchAlerts(); };
-    elements.showHistory.onclick = () => { switchTab(elements.showHistory, 'historyView'); fetchHistory(); };
+    elements.showHistory.onclick = () => { switchTab(elements.showHistory, 'historyView'); fetchHistory(); fetchHistoryTimeline(); };
     elements.showSettings.onclick = () => { switchTab(elements.showSettings, 'settingsView'); fetchSettings(); };
     elements.showBandwidth.onclick = () => { switchTab(elements.showBandwidth, 'bandwidthView'); };
+
+    if (elements.timelineDate) {
+        elements.timelineDate.value = new Date().toISOString().split('T')[0];
+        elements.timelineDate.onchange = () => fetchHistoryTimeline();
+    }
 
     // --- SSE Monitoring Listener ---
     const startSSEListener = () => {
@@ -742,6 +755,76 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } catch (e) { console.error("Error fetching bandwidth:", e); }
+    };
+
+    const initTimelineChart = () => {
+        if (timelineChart) return;
+        const ctx = document.getElementById('timelineChart').getContext('2d');
+        timelineChart = new Chart(ctx, {
+            type: 'bar',
+            data: { datasets: [] },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#64748b' },
+                        min: elements.timelineDate.value + 'T00:00:00',
+                        max: elements.timelineDate.value + 'T23:59:59'
+                    },
+                    y: {
+                        stacked: false,
+                        grid: { display: false },
+                        ticks: { color: '#64748b', font: { size: 10 } }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const start = new Date(ctx.raw.x[0]).toLocaleTimeString();
+                                const end = new Date(ctx.raw.x[1]).toLocaleTimeString();
+                                return `${ctx.dataset.label}: ${start} - ${end}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    };
+
+    const fetchHistoryTimeline = async () => {
+        try {
+            const date = elements.timelineDate.value;
+            const resp = await fetch(`/api/history/timeline?date=${date}`);
+            const result = await resp.json();
+            if (result.status === 'success') {
+                const groups = {};
+                result.data.forEach(s => {
+                    if (!groups[s.label]) groups[s.label] = [];
+                    groups[s.label].push({ x: [s.start, s.end], y: s.label });
+                });
+
+                timelineChart.options.scales.x.min = date + 'T00:00:00';
+                timelineChart.options.scales.x.max = date + 'T23:59:59';
+                
+                timelineChart.data.datasets = Object.entries(groups).map(([label, data], i) => ({
+                    label: label,
+                    data: data,
+                    backgroundColor: `hsla(${(i * 45) % 360}, 70%, 60%, 0.5)`,
+                    borderColor: `hsl(${(i * 45) % 360}, 70%, 60%)`,
+                    borderWidth: 1,
+                    borderRadius: 4,
+                    barPercentage: 0.8
+                }));
+                timelineChart.update();
+            }
+        } catch (e) { console.error("Error fetching timeline:", e); }
     };
 
     // Close sidebar on click outside on mobile

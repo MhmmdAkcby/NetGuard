@@ -15,7 +15,7 @@ import json
 from datetime import datetime, timedelta
 
 from scanner import scan_network_stream, update_mac_database, get_interfaces, DiscoveryManager, discovery_manager, scan_surrounding_networks_stream
-from database import init_db, save_scan_results, get_latest_scans, get_alerts, save_alert, get_latest_full_scan, save_network_health, save_config, get_config
+from database import init_db, save_scan_results, get_latest_scans, get_alerts, save_alert, get_latest_full_scan, save_network_health, save_config, get_config, get_history_timeline
 from cve_updater import update_cve_database, get_cve_stats
 from ids_engine import IDSEngine
 from security_engine import security_engine
@@ -46,7 +46,7 @@ async def handle_ids_alert(alert):
     # Push to SSE
     await event_queue.put(alert)
 
-ids_engine = IDSEngine(handle_ids_alert)
+ids_engine = IDSEngine(handle_ids_alert, gateway_callback=security_engine.set_config)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,11 +57,6 @@ async def lifespan(app: FastAPI):
     try:
         interface = await get_config("last_interface")
         ids_engine.start(interface)
-        
-        # Initialize Security Engine
-        # Wait a moment for IDS to find gateway or pull from config
-        await asyncio.sleep(2)
-        security_engine.set_config(ids_engine.interface, ids_engine.gateway_ip)
     except Exception as e:
         logger.error(f"Failed to start Security Services: {e}")
 
@@ -179,6 +174,10 @@ async def trigger_cve_update():
 @app.get("/api/bandwidth")
 async def api_bandwidth():
     return {"status": "success", "data": ids_engine.get_bandwidth_stats()}
+
+@app.get("/api/history/timeline")
+async def api_history_timeline(date: str = None):
+    return {"status": "success", "data": await get_history_timeline(date)}
 
 @app.post("/api/security/block")
 async def api_block_device(request: Request):
