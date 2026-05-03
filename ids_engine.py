@@ -41,6 +41,10 @@ class IDSEngine:
         # Timestamps for windowing
         self.last_cleanup = time.time()
         self._lock = threading.Lock()
+        
+        # Bandwidth Monitoring
+        # {ip: {"sent": bytes, "recv": bytes, "bps": float, "last_check": timestamp}}
+        self.bandwidth_data = defaultdict(lambda: {"sent": 0, "recv": 0, "bps": 0.0, "last_check": time.time(), "prev_total": 0})
 
     def _packet_handler(self, pkt):
         try:
@@ -53,6 +57,7 @@ class IDSEngine:
             # 2. Port & Host Scanning Detection
             if IP in pkt:
                 self._handle_ip_scan(pkt, now)
+                self._handle_bandwidth(pkt, now)
 
             # Periodic cleanup (every 30s to keep memory low)
             if now - self.last_cleanup > 30:
@@ -134,6 +139,48 @@ class IDSEngine:
                     msg = f"Host Discovery detected: {src_ip} probing port {dport} across {len(self.horizontal_scan_cache[src_ip][dport])} hosts"
                     self._emit_alert("Medium", "Host Discovery", msg, src_ip)
                     self.horizontal_scan_cache[src_ip][dport].clear()
+
+    def _handle_bandwidth(self, pkt, now):
+        src_ip = pkt[IP].src
+        dst_ip = pkt[IP].dst
+        pkt_size = len(pkt)
+        
+        with self._lock:
+            # Update sent for source
+            self.bandwidth_data[src_ip]["sent"] += pkt_size
+            # Update recv for destination
+            self.bandwidth_data[dst_ip]["recv"] += pkt_size
+            
+            # Rate calculation (every ~1s)
+            for ip in [src_ip, dst_ip]:
+                data = self.bandwidth_data[ip]
+                elapsed = now - data["last_check"]
+                if elapsed >= 1.0:
+                    current_total = data["sent"] + data["recv"]
+                    diff = current_total - data["prev_total"]
+                    data["bps"] = diff / elapsed
+                    data["prev_total"] = current_total
+                    data["last_check"] = now
+
+    def get_bandwidth_stats(self):
+        """Returns a list of device bandwidth usage sorted by bps."""
+        now = time.time()
+        with self._lock:
+            stats = []
+            for ip, data in self.bandwidth_data.items():
+                # If no packets seen for > 2s, set bps to 0
+                if now - data["last_check"] > 2.0:
+                    data["bps"] = 0.0
+                
+                if data["sent"] > 0 or data["recv"] > 0:
+                    stats.append({
+                        "ip": ip,
+                        "sent": data["sent"],
+                        "recv": data["recv"],
+                        "bps": round(data["bps"], 2),
+                        "kbps": round(data["bps"] * 8 / 1024, 2)
+                    })
+            return sorted(stats, key=lambda x: x["bps"], reverse=True)
 
     def _emit_alert(self, sev, type, msg, ip=None):
         alert = {

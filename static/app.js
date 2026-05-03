@@ -28,12 +28,15 @@ document.addEventListener('DOMContentLoaded', () => {
         showSecurity: document.getElementById('showSecurity'),
         showHistory: document.getElementById('showHistory'),
         showSettings: document.getElementById('showSettings'),
+        showBandwidth: document.getElementById('showBandwidth'),
         wifiScanBtn: document.getElementById('wifiScanBtn'),
         reconView: document.getElementById('reconView'),
         securityView: document.getElementById('securityView'),
         historyView: document.getElementById('historyView'),
         settingsView: document.getElementById('settingsView'),
+        bandwidthView: document.getElementById('bandwidthView'),
         historyTableBody: document.getElementById('historyTableBody'),
+        bandwidthTableBody: document.getElementById('bandwidthTableBody'),
         // Intelligence Hub
         alertsContainer: document.getElementById('alertsContainer'),
         clearAlerts: document.getElementById('clearAlerts'),
@@ -68,6 +71,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastScanData = [];
     let currentSocket = null;
     let isScanning = false;
+    let bandwidthChart = null;
+    let bandwidthInterval = null;
 
     // Pagination State
     let alertPage = 1;
@@ -76,11 +81,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Tab Management ---
     const switchTab = (activeBtn, viewId) => {
-        [elements.showRecon, elements.showSecurity, elements.showHistory, elements.showSettings].forEach(btn => btn.classList.remove('tab-active'));
-        [elements.reconView, elements.securityView, elements.historyView, elements.settingsView].forEach(view => view.classList.add('hidden'));
+        [elements.showRecon, elements.showSecurity, elements.showHistory, elements.showSettings, elements.showBandwidth].forEach(btn => btn.classList.remove('tab-active'));
+        [elements.reconView, elements.securityView, elements.historyView, elements.settingsView, elements.bandwidthView].forEach(view => view.classList.add('hidden'));
         
         activeBtn.classList.add('tab-active');
         document.getElementById(viewId).classList.remove('hidden');
+        
+        // Handle Refresh intervals
+        if (bandwidthInterval) { clearInterval(bandwidthInterval); bandwidthInterval = null; }
+        if (viewId === 'bandwidthView') {
+            initBandwidthChart();
+            fetchBandwidth();
+            bandwidthInterval = setInterval(fetchBandwidth, 2000);
+        }
+        
         if (viewId === 'reconView' && network) {
             setTimeout(() => {
                 network.fit();
@@ -92,6 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.showSecurity.onclick = () => { switchTab(elements.showSecurity, 'securityView'); fetchAlerts(); };
     elements.showHistory.onclick = () => { switchTab(elements.showHistory, 'historyView'); fetchHistory(); };
     elements.showSettings.onclick = () => { switchTab(elements.showSettings, 'settingsView'); fetchSettings(); };
+    elements.showBandwidth.onclick = () => { switchTab(elements.showBandwidth, 'bandwidthView'); };
 
     // --- SSE Monitoring Listener ---
     const startSSEListener = () => {
@@ -608,6 +623,77 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elements.exportJsonBtn) {
         elements.exportJsonBtn.onclick = () => window.open('/api/export/json', '_blank');
     }
+
+    const formatBytes = (bytes, decimals = 2) => {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
+    const initBandwidthChart = () => {
+        if (bandwidthChart) return;
+        const ctx = document.getElementById('bandwidthChart').getContext('2d');
+        bandwidthChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Transfer Rate (Kbps)',
+                    data: [],
+                    backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 1,
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#64748b', font: { size: 10 } }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#64748b', font: { size: 10 } }
+                    }
+                }
+            }
+        });
+    };
+
+    const fetchBandwidth = async () => {
+        try {
+            const resp = await fetch('/api/bandwidth');
+            const result = await resp.json();
+            if (result.status === 'success') {
+                const data = result.data.filter(d => d.sent > 0 || d.recv > 0).slice(0, 10);
+                
+                // Update Table
+                elements.bandwidthTableBody.innerHTML = data.map(d => `
+                    <tr class="border-b border-white/5 hover:bg-white/5">
+                        <td class="px-6 py-4 font-mono text-blue-400 text-xs">${d.ip}</td>
+                        <td class="px-6 py-4 text-right text-slate-400 text-xs">${formatBytes(d.sent)}</td>
+                        <td class="px-6 py-4 text-right text-slate-400 text-xs">${formatBytes(d.recv)}</td>
+                        <td class="px-6 py-4 text-right"><span class="px-2 py-1 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold">${d.kbps} Kbps</span></td>
+                    </tr>
+                `).join('');
+
+                // Update Chart
+                if (bandwidthChart) {
+                    bandwidthChart.data.labels = data.map(d => d.ip);
+                    bandwidthChart.data.datasets[0].data = data.map(d => d.kbps);
+                    bandwidthChart.update('none'); // Update without animation for smoother real-time look
+                }
+            }
+        } catch (e) { console.error("Error fetching bandwidth:", e); }
+    };
 
     // Close sidebar on click outside on mobile
     window.onclick = (e) => {

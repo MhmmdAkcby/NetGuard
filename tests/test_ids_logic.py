@@ -57,14 +57,21 @@ class TestIDSLogic(unittest.IsolatedAsyncioTestCase):
 
     async def test_flood_detection(self):
         src_ip = "192.168.1.50"
-        
         for _ in range(1100):
             pkt = IP(src=src_ip, dst="1.1.1.1")/UDP(dport=53)
             self.ids._packet_handler(pkt)
-            
         await asyncio.sleep(0.1)
         alerts = [call[0][0] for call in self.alert_mock.call_args_list]
         self.assertTrue(any(a['type'] == "Flood Detection" for a in alerts))
+
+    async def test_bandwidth_monitoring(self):
+        src_ip = "192.168.1.10"
+        # Simulate sending 1000 bytes
+        pkt = IP(src=src_ip, dst="1.1.1.1")/TCP(dport=80)/("X"*960) # ~1000 bytes total
+        self.ids._packet_handler(pkt)
+        stats = self.ids.get_bandwidth_stats()
+        device_stats = next(s for s in stats if s['ip'] == src_ip)
+        self.assertTrue(device_stats['sent'] >= 1000)
 
 if __name__ == "__main__":
     unittest.main()

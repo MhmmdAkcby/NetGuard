@@ -170,6 +170,10 @@ async def trigger_cve_update():
     asyncio.create_task(update_cve_database())
     return {"status": "updating", "last_updated": datetime.now().isoformat()}
 
+@app.get("/api/bandwidth")
+async def api_bandwidth():
+    return {"status": "success", "data": ids_engine.get_bandwidth_stats()}
+
 @app.get("/api/cve/stats")
 async def api_cve_stats():
     return {"status": "success", "data": await get_cve_stats()}
