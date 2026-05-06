@@ -886,6 +886,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Pentest Module Logic ---
     let pentestScanInterval = null;
+    let selectedPentestTarget = null;
+    let lastPentestMode = null;
+
+    const updatePentestTargetUi = () => {
+        const badge = document.getElementById('selectedApTarget');
+        const clearBtn = document.getElementById('btnClearApTarget');
+        if (!badge || !clearBtn) return;
+
+        if (!selectedPentestTarget) {
+            badge.textContent = 'Target AP: All Networks';
+            badge.classList.remove('bg-purple-500/20', 'text-purple-300', 'border-purple-500/30');
+            badge.classList.add('bg-slate-500/20', 'text-slate-300', 'border-white/10');
+            clearBtn.classList.add('hidden');
+            return;
+        }
+
+        const label = selectedPentestTarget.essid || 'Hidden';
+        const bssid = selectedPentestTarget.bssid || '-';
+        badge.textContent = `Target AP: ${label} (${bssid})`;
+        badge.classList.remove('bg-slate-500/20', 'text-slate-300', 'border-white/10');
+        badge.classList.add('bg-purple-500/20', 'text-purple-300', 'border-purple-500/30');
+        clearBtn.classList.remove('hidden');
+    };
+
+    document.getElementById('btnClearApTarget').onclick = () => {
+        selectedPentestTarget = null;
+        updatePentestTargetUi();
+        fetchPentestResults();
+    };
 
     const initPentest = async () => {
         try {
@@ -987,10 +1016,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const resp = await fetch('/api/pentest/scan/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({interface: document.getElementById('monitorStatus').textContent.match(/\((.*?)\)/)?.[1] || document.getElementById('pentestInterface').value })
+                    body: JSON.stringify({
+                        interface: document.getElementById('monitorStatus').textContent.match(/\((.*?)\)/)?.[1] || document.getElementById('pentestInterface').value,
+                        bssid: selectedPentestTarget?.bssid || undefined,
+                        channel: selectedPentestTarget?.channel || undefined,
+                        essid: selectedPentestTarget?.essid || undefined
+                    })
                 });
                 const res = await resp.json();
                 if (res.status === 'success') {
+                    lastPentestMode = res.data.mode || null;
                     btnToggleScan.textContent = "Stop Scan";
                     btnToggleScan.classList.replace('bg-blue-600', 'bg-red-600');
                     btnToggleScan.classList.replace('hover:bg-blue-500', 'hover:bg-red-500');
@@ -1027,7 +1062,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     apList.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-slate-500">No APs discovered</td></tr>';
                 } else {
                     apList.innerHTML = aps.map(a => `
-                        <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthAp').value='${a.bssid}'">
+                        <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer pentest-ap-row ${selectedPentestTarget?.bssid === a.bssid ? 'bg-purple-500/10' : ''}" data-bssid="${a.bssid}" data-channel="${a.channel ?? ''}" data-essid="${(a.essid || '').replace(/"/g, '&quot;')}">
                             <td class="px-4 py-2 font-bold">${a.essid}</td>
                             <td class="px-4 py-2 font-mono text-slate-400">${a.bssid}</td>
                             <td class="px-4 py-2 text-center">${a.channel ?? '-'}</td>
@@ -1036,11 +1071,26 @@ document.addEventListener('DOMContentLoaded', () => {
                             <td class="px-4 py-2">${a.signal_quality || a.signal || '-'}</td>
                         </tr>
                     `).join('');
+                    apList.querySelectorAll('.pentest-ap-row').forEach(row => {
+                        row.onclick = () => {
+                            selectedPentestTarget = {
+                                bssid: row.dataset.bssid,
+                                channel: row.dataset.channel ? parseInt(row.dataset.channel, 10) : undefined,
+                                essid: row.dataset.essid || undefined
+                            };
+                            document.getElementById('deauthAp').value = row.dataset.bssid || '';
+                            updatePentestTargetUi();
+                            fetchPentestResults();
+                        };
+                    });
                 }
                 
                 const clientList = document.getElementById('pentestClientList');
                 if (clients.length === 0) {
-                    clientList.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-slate-500">No clients discovered</td></tr>';
+                    const emptyMsg = lastPentestMode === 'windows-compat'
+                        ? 'Client discovery is limited in Windows mode (monitor capture unavailable).'
+                        : 'No clients discovered';
+                    clientList.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-slate-500">${emptyMsg}</td></tr>`;
                 } else {
                     clientList.innerHTML = clients.map(c => `
                         <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthClient').value='${c.station}'; document.getElementById('deauthAp').value='${c.bssid}'">
@@ -1055,6 +1105,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (e) {}
     };
+    updatePentestTargetUi();
 
     // Attack
     document.getElementById('btnLaunchDeauth').onclick = async () => {
