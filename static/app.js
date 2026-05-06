@@ -1183,7 +1183,20 @@ document.addEventListener('DOMContentLoaded', () => {
             container.classList.remove('hidden');
             cmdsBar.classList.remove('hidden');
             btn.textContent = "Close Terminal";
-            fitAddon.fit();
+            
+            // Small delay to ensure DOM is ready for sizing
+            setTimeout(() => {
+                if (fitAddon) {
+                    fitAddon.fit();
+                    if (termSocket && termSocket.readyState === WebSocket.OPEN) {
+                        termSocket.send(JSON.stringify({
+                            type: 'resize',
+                            cols: term.cols,
+                            rows: term.rows
+                        }));
+                    }
+                }
+            }, 100);
 
             const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             termSocket = new WebSocket(`${wsProto}//${window.location.host}/ws/terminal`);

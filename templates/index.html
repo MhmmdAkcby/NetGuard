@@ -119,7 +119,7 @@
         </nav>
 
             <!-- Content Area -->
-        <div id="mainContentArea" class="col-span-12 lg:col-span-7 flex flex-col min-h-0 space-y-4">
+        <div id="mainContentArea" class="col-span-12 lg:col-span-7 flex flex-col min-h-0 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
             
             <!-- Recon View -->
             <div id="reconView" class="flex-1 flex flex-col min-h-0 space-y-4">
@@ -306,7 +306,7 @@
             </div>
 
             <!-- Pentest View -->
-            <div id="pentestView" class="hidden animate-slide-in space-y-6">
+            <div id="pentestView" class="hidden animate-slide-in space-y-6 pb-20">
                 <div id="pentestWarning" class="hidden bg-red-500/20 text-red-400 p-4 rounded-xl border border-red-500/30 text-sm font-bold">
                     <!-- Error message if not Linux -->
                 </div>
@@ -340,8 +340,8 @@
                         <button id="btnClearApTarget" class="hidden px-3 py-1 rounded-lg text-[10px] font-bold uppercase bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10">Clear Target</button>
                     </div>
                     
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <!-- APs -->
+                    <div class="space-y-6">
+                        <!-- APs (Full Width) -->
                         <div class="bg-black/20 rounded-2xl border border-white/5 overflow-hidden flex flex-col h-[300px]">
                             <div class="p-3 bg-white/5 border-b border-white/5"><h4 class="text-xs font-bold uppercase tracking-widest text-slate-400">Access Points</h4></div>
                             <div class="flex-1 overflow-auto">
@@ -362,30 +362,38 @@
                                 </table>
                             </div>
                         </div>
-                        <!-- Clients -->
-                        <div class="bg-black/20 rounded-2xl border border-white/5 overflow-hidden flex flex-col h-[300px]">
-                            <div class="p-3 bg-white/5 border-b border-white/5"><h4 class="text-xs font-bold uppercase tracking-widest text-slate-400">Clients</h4></div>
-                            <div class="flex-1 overflow-auto">
-                                <table class="w-full text-left">
-                                    <thead class="bg-slate-800/50 sticky top-0">
-                                        <tr>
-                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">MAC</th>
-                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">BSSID</th>
-                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 text-right">PWR</th>
-                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 text-right">PKTS</th>
-                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">Probes</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="pentestClientList" class="text-xs">
-                                        <tr><td colspan="5" class="text-center py-4 text-slate-500">No clients discovered</td></tr>
-                                    </tbody>
-                                </table>
+
+                        <!-- Hacker Terminal (Integrated below APs) -->
+                        <div class="bg-black/20 rounded-2xl border border-white/5 overflow-hidden flex flex-col">
+                            <div class="p-3 bg-white/5 border-b border-white/5 flex justify-between items-center">
+                                <h4 class="text-xs font-bold uppercase tracking-widest text-green-400 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    Hacker Terminal
+                                </h4>
+                                <div class="flex items-center gap-3">
+                                    <span id="terminalStatus" class="text-[9px] font-bold uppercase tracking-widest text-slate-500">Offline</span>
+                                    <button id="btnTerminalToggle" class="bg-green-600 hover:bg-green-500 text-white font-bold text-[9px] uppercase px-3 py-1 rounded-lg transition-all">Open Terminal</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Quick Commands (Inside card) -->
+                            <div id="quickCmdsBar" class="hidden flex flex-wrap gap-2 p-3 bg-white/5 border-b border-white/5">
+                                <button class="quick-cmd px-2 py-1 rounded text-[9px] font-bold uppercase bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20" data-cmd="airodump-ng --help">airodump-ng help</button>
+                                <button class="quick-cmd px-2 py-1 rounded text-[9px] font-bold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20" data-cmd="iwconfig">iwconfig</button>
+                                <button class="quick-cmd px-2 py-1 rounded text-[9px] font-bold uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20" data-cmd="airmon-ng">airmon-ng</button>
+                                <button class="quick-cmd px-2 py-1 rounded text-[9px] font-bold uppercase bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20" data-cmd="aireplay-ng --help">aireplay-ng help</button>
+                                <button class="quick-cmd px-2 py-1 rounded text-[9px] font-bold uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20" data-cmd="aircrack-ng --help">aircrack-ng help</button>
+                            </div>
+
+                            <!-- Terminal Container -->
+                            <div id="terminalContainer" class="hidden h-[450px] w-full bg-[#0f172a]">
+                                <div id="terminal" class="w-full h-full p-2"></div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Attack -->
+                <!-- Attack Section -->
                 <div class="glass rounded-3xl p-6 relative overflow-hidden">
                     <div class="absolute top-0 right-0 w-32 h-32 bg-red-500/10 blur-[50px] pointer-events-none"></div>
                     <h3 class="font-bold text-lg mb-4 text-red-400 flex items-center gap-2 relative z-10">
@@ -409,34 +417,7 @@
                     </div>
                     <div id="attackResult" class="mt-4 text-sm hidden p-3 rounded-xl border relative z-10"></div>
                 </div>
-
-                <!-- Hacker Terminal -->
-                <div class="glass rounded-3xl p-6 relative overflow-hidden">
-                    <div class="absolute top-0 left-0 w-40 h-40 bg-green-500/5 blur-[60px] pointer-events-none"></div>
-                    <div class="flex justify-between items-center mb-4 relative z-10">
-                        <h3 class="font-bold text-lg text-green-400 flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                            Hacker Terminal
-                        </h3>
-                        <div class="flex items-center gap-2">
-                            <span id="terminalStatus" class="text-[9px] font-bold uppercase tracking-widest text-slate-500">Offline</span>
-                            <button id="btnTerminalToggle" class="bg-green-600 hover:bg-green-500 text-white font-bold text-xs uppercase px-5 py-2 rounded-xl transition-all shadow-lg shadow-green-600/20">Open Terminal</button>
-                        </div>
-                    </div>
-                    <!-- Quick Commands -->
-                    <div id="quickCmdsBar" class="hidden flex flex-wrap gap-2 mb-3 relative z-10">
-                        <button class="quick-cmd px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all" data-cmd="airodump-ng --help">airodump-ng help</button>
-                        <button class="quick-cmd px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-all" data-cmd="iwconfig">iwconfig</button>
-                        <button class="quick-cmd px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 transition-all" data-cmd="airmon-ng">airmon-ng</button>
-                        <button class="quick-cmd px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all" data-cmd="aireplay-ng --help">aireplay-ng help</button>
-                        <button class="quick-cmd px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20 transition-all" data-cmd="aircrack-ng --help">aircrack-ng help</button>
-                        <button class="quick-cmd px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all" data-cmd="ifconfig">ifconfig</button>
-                    </div>
-                    <!-- Terminal Container -->
-                    <div id="terminalContainer" class="hidden rounded-xl overflow-hidden border border-white/5 relative z-10" style="height: 380px;">
-                        <div id="terminal" style="width:100%;height:100%;"></div>
-                    </div>
-                </div>
+            </div>
             </div>
 
             <!-- Settings View -->
