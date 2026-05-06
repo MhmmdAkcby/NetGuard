@@ -20,6 +20,7 @@ from cve_updater import update_cve_database, get_cve_stats
 from ids_engine import IDSEngine
 from security_engine import security_engine
 from wifi_pentest.engine import PentestEngine
+from wifi_pentest.terminal import TerminalSession
 
 # --- SSE Event Queue ---
 event_queue = asyncio.Queue()
@@ -367,6 +368,85 @@ async def ws_pentest_scan(websocket: WebSocket):
             pass
     finally:
         await pentest_engine.stop_stream()
+        try:
+            await websocket.close()
+        except:
+            pass
+
+@app.websocket("/ws/terminal")
+async def ws_terminal(websocket: WebSocket):
+    """
+    WebSocket endpoint for interactive web terminal.
+    Spawns a PTY shell (Linux) or PowerShell (Windows) and bridges
+    stdin/stdout between the browser and the process in real-time.
+    Use for: airodump-ng, aireplay-ng, aircrack-ng, nmap, etc.
+    """
+    await websocket.accept()
+    session = TerminalSession()
+
+    try:
+        # Receive initial config (terminal size)
+        config_data = await websocket.receive_text()
+        config = json.loads(config_data)
+        cols = config.get("cols", 120)
+        rows = config.get("rows", 30)
+
+        result = await session.start(cols, rows)
+        await websocket.send_json({"type": "started", "data": result})
+
+        if not result.get("success"):
+            return
+
+        # Background task: read process output → send to browser
+        async def output_reader():
+            while session.is_running:
+                data = await session.read()
+                if data:
+                    try:
+                        await websocket.send_bytes(data)
+                    except Exception:
+                        break
+                else:
+                    await asyncio.sleep(0.02)
+
+        reader_task = asyncio.create_task(output_reader())
+
+        # Main loop: receive browser input → write to process
+        try:
+            while session.is_running:
+                msg = await websocket.receive()
+                if msg["type"] == "websocket.disconnect":
+                    break
+                if "text" in msg:
+                    text_msg = json.loads(msg["text"])
+                    if text_msg.get("type") == "input":
+                        await session.write(text_msg["data"].encode())
+                    elif text_msg.get("type") == "resize":
+                        await session.resize(
+                            text_msg.get("cols", 120),
+                            text_msg.get("rows", 30)
+                        )
+                elif "bytes" in msg:
+                    await session.write(msg["bytes"])
+        except WebSocketDisconnect:
+            pass
+        finally:
+            reader_task.cancel()
+            try:
+                await reader_task
+            except asyncio.CancelledError:
+                pass
+
+    except WebSocketDisconnect:
+        logger.info("Terminal WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Terminal WS Error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        await session.stop()
         try:
             await websocket.close()
         except:

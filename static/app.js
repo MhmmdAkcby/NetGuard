@@ -1137,7 +1137,110 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     updatePentestTargetUi();
 
-    // Attack
+    // --- Hacker Terminal (xterm.js + WebSocket) ---
+    let term = null;
+    let termSocket = null;
+    let fitAddon = null;
+
+    const initTerminal = () => {
+        if (term) return;
+
+        term = new Terminal({
+            cursorBlink: true,
+            fontSize: 13,
+            fontFamily: '"JetBrains Mono", monospace',
+            theme: {
+                background: '#0f172a',
+                foreground: '#10b981',
+                cursor: '#10b981',
+                selection: 'rgba(16, 185, 129, 0.3)'
+            }
+        });
+
+        fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        window.addEventListener('resize', () => fitAddon && fitAddon.fit());
+    };
+
+    const toggleTerminal = () => {
+        const container = document.getElementById('terminalContainer');
+        const cmdsBar = document.getElementById('quickCmdsBar');
+        const btn = document.getElementById('btnTerminalToggle');
+        const status = document.getElementById('terminalStatus');
+
+        if (termSocket && termSocket.readyState === WebSocket.OPEN) {
+            termSocket.close();
+            container.classList.add('hidden');
+            cmdsBar.classList.add('hidden');
+            btn.textContent = "Open Terminal";
+            status.textContent = "Offline";
+            status.className = "text-[9px] font-bold uppercase tracking-widest text-slate-500";
+        } else {
+            initTerminal();
+            container.classList.remove('hidden');
+            cmdsBar.classList.remove('hidden');
+            btn.textContent = "Close Terminal";
+            fitAddon.fit();
+
+            const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            termSocket = new WebSocket(`${wsProto}//${window.location.host}/ws/terminal`);
+            termSocket.binaryType = 'arraybuffer';
+
+            termSocket.onopen = () => {
+                status.textContent = "Online";
+                status.className = "text-[9px] font-bold uppercase tracking-widest text-green-400";
+                
+                // Send initial size
+                termSocket.send(JSON.stringify({
+                    type: 'resize',
+                    cols: term.cols,
+                    rows: term.rows
+                }));
+            };
+
+            termSocket.onmessage = async (e) => {
+                if (e.data instanceof ArrayBuffer) {
+                    term.write(new Uint8Array(e.data));
+                } else {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'started') {
+                        term.write("\r\n\x1b[1;32m[NetGuard]\x1b[0m Terminal session started.\r\n");
+                    }
+                }
+            };
+
+            termSocket.onclose = () => {
+                term.write("\r\n\x1b[1;31m[NetGuard]\x1b[0m Connection closed.\r\n");
+                toggleTerminal(); // Reset UI
+            };
+
+            term.onData(data => {
+                if (termSocket && termSocket.readyState === WebSocket.OPEN) {
+                    termSocket.send(JSON.stringify({ type: 'input', data: data }));
+                }
+            });
+        }
+    };
+
+    document.getElementById('btnTerminalToggle').onclick = toggleTerminal;
+
+    // Quick Commands
+    document.querySelectorAll('.quick-cmd').forEach(btn => {
+        btn.onclick = () => {
+            const cmd = btn.dataset.cmd;
+            if (termSocket && termSocket.readyState === WebSocket.OPEN) {
+                // Send command + Enter
+                termSocket.send(JSON.stringify({ type: 'input', data: cmd + '\n' }));
+            } else {
+                alert("Please open the terminal first.");
+            }
+        };
+    });
+
+    // Original Deauth Attack
     document.getElementById('btnLaunchDeauth').onclick = async () => {
         const ap = document.getElementById('deauthAp').value;
         const client = document.getElementById('deauthClient').value;
