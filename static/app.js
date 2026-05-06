@@ -1024,25 +1024,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const apList = document.getElementById('pentestApList');
                 if (aps.length === 0) {
-                    apList.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-slate-500">No APs discovered</td></tr>';
+                    apList.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-slate-500">No APs discovered</td></tr>';
                 } else {
                     apList.innerHTML = aps.map(a => `
                         <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthAp').value='${a.bssid}'">
                             <td class="px-4 py-2 font-bold">${a.essid}</td>
                             <td class="px-4 py-2 font-mono text-slate-400">${a.bssid}</td>
-                            <td class="px-4 py-2 text-right ${a.power > -60 ? 'text-green-400' : 'text-yellow-400'}">${a.power}</td>
+                            <td class="px-4 py-2 text-center">${a.channel ?? '-'}</td>
+                            <td class="px-4 py-2 text-right ${a.power > -60 ? 'text-green-400' : 'text-yellow-400'}">${a.power ?? '-'}</td>
+                            <td class="px-4 py-2">${a.encryption || a.security || '-'}</td>
+                            <td class="px-4 py-2">${a.signal_quality || a.signal || '-'}</td>
                         </tr>
                     `).join('');
                 }
                 
                 const clientList = document.getElementById('pentestClientList');
                 if (clients.length === 0) {
-                    clientList.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-slate-500">No clients discovered</td></tr>';
+                    clientList.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-slate-500">No clients discovered</td></tr>';
                 } else {
                     clientList.innerHTML = clients.map(c => `
                         <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthClient').value='${c.station}'; document.getElementById('deauthAp').value='${c.bssid}'">
                             <td class="px-4 py-2 font-mono">${c.station}</td>
                             <td class="px-4 py-2 font-mono text-slate-400">${c.bssid}</td>
+                            <td class="px-4 py-2 text-right">${c.power ?? '-'}</td>
+                            <td class="px-4 py-2 text-right">${c.packets ?? '-'}</td>
                             <td class="px-4 py-2 text-slate-400 truncate max-w-[100px]">${c.probed_essids}</td>
                         </tr>
                     `).join('');
