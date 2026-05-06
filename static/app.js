@@ -81,7 +81,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let isScanning = false;
     let bandwidthChart = null;
     let bandwidthInterval = null;
-    let blockedDevices = [];
     let timelineChart = null;
 
     // Pagination State
@@ -244,17 +243,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         elements.adapterDetails.innerHTML = html;
     };
-
-    // --- Security Status Sync ---
-    const fetchSecurityStatus = async () => {
-        try {
-            const resp = await fetch('/api/security/status');
-            const result = await resp.json();
-            if (result.status === 'success') blockedDevices = result.blocked_devices;
-        } catch (e) {}
-    };
-    setInterval(fetchSecurityStatus, 5000);
-    fetchSecurityStatus();
 
     elements.interfaceSelect.onchange = () => {
         const sel = elements.interfaceSelect.options[elements.interfaceSelect.selectedIndex];
@@ -686,6 +674,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `).join('');
 
+            const servicesCount = (device.ports || []).length;
+            const vulnCount = (device.vulnerabilities || []).length;
+            const connMethod = device.method || 'Unknown';
+
             content = `
                 <div class="flex items-center gap-4 mb-6 animate-slide-in">
                     <div class="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-xl font-bold border border-blue-500/20">${device.ip.split('.').pop()}</div>
@@ -705,15 +697,25 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-xs font-bold text-red-400">${device.risk_score || 0}</p>
                         </div>
                     </div>
-                    
-                    ${device.ip ? `
-                    <div id="blockActionContainer">
-                        <button id="blockBtn" class="w-full py-3 rounded-xl font-bold text-[10px] uppercase transition-all ${blockedDevices.includes(device.ip) ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10'}">
-                            ${blockedDevices.includes(device.ip) ? 'Device Blocked - Tap to Unblock' : 'Security Action: Block Internet Access'}
-                        </button>
-                        <p class="text-[8px] text-slate-600 text-center mt-2 uppercase tracking-widest px-4">Disrupts connection via ARP Poisoning. Use for security mitigation only.</p>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Connection Method</p>
+                            <p class="text-xs font-bold text-white">${connMethod}</p>
+                        </div>
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Discovered Address</p>
+                            <p class="text-xs font-mono text-blue-400">${device.ip || 'N/A'}</p>
+                        </div>
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Open Services</p>
+                            <p class="text-xs font-bold text-white">${servicesCount}</p>
+                        </div>
+                        <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Known Vulnerabilities</p>
+                            <p class="text-xs font-bold ${vulnCount > 0 ? 'text-red-400' : 'text-green-400'}">${vulnCount}</p>
+                        </div>
                     </div>
-                    ` : ''}
 
                     <div class="p-3 bg-white/5 rounded-2xl border border-white/5">
                         <p class="text-[9px] text-slate-500 font-bold uppercase mb-1">Hardware ID</p>
@@ -731,33 +733,6 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
         }
         elements.deviceContent.innerHTML = content;
-        
-        // Attach block handler if IP exists
-        if (device.ip) {
-            const btn = document.getElementById('blockBtn');
-            if (btn) {
-                btn.onclick = async () => {
-                    const isBlocked = blockedDevices.includes(device.ip);
-                    const endpoint = isBlocked ? '/api/security/unblock' : '/api/security/block';
-                    btn.textContent = "Processing...";
-                    btn.disabled = true;
-                    
-                    try {
-                        const resp = await fetch(endpoint, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ip: device.ip, mac: device.mac })
-                        });
-                        const result = await resp.json();
-                        if (result.status === 'success') {
-                            await fetchSecurityStatus();
-                            renderDetails(device); // Re-render to update button
-                        }
-                    } catch (e) { console.error("Block error:", e); }
-                    finally { btn.disabled = false; }
-                };
-            }
-        }
     };
 
     // Export Handlers
