@@ -84,6 +84,10 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                 <span class="text-sm font-semibold">Bandwidth</span>
             </button>
+            <button id="showPentest" class="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all group">
+                <svg class="w-5 h-5 group-hover:animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"></path></svg>
+                <span class="text-sm font-semibold">Offensive</span>
+            </button>
             <button id="showSettings" class="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                 <span class="text-sm font-semibold">Settings</span>
@@ -295,6 +299,103 @@
                             <!-- Bandwidth data will appear here -->
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- Pentest View -->
+            <div id="pentestView" class="hidden animate-slide-in space-y-6">
+                <div id="pentestWarning" class="hidden bg-red-500/20 text-red-400 p-4 rounded-xl border border-red-500/30 text-sm font-bold">
+                    <!-- Error message if not Linux -->
+                </div>
+
+                <!-- Monitor Mode -->
+                <div class="glass rounded-3xl p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-lg">Monitor Mode Management</h3>
+                        <span id="monitorStatus" class="px-3 py-1 rounded-full text-[10px] font-bold bg-slate-500/20 text-slate-400 border border-white/5">INACTIVE</span>
+                    </div>
+                    <div class="flex flex-wrap gap-4 items-end">
+                        <div class="flex-1 min-w-[200px]">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Wireless Interface</label>
+                            <select id="pentestInterface" class="w-full mt-2 bg-slate-800 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500/50 transition-all text-white">
+                                <option value="">Select Interface...</option>
+                            </select>
+                        </div>
+                        <button id="btnEnableMonitor" class="bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase px-6 py-3 rounded-xl transition-all h-[46px] shadow-lg shadow-purple-600/20">Enable</button>
+                        <button id="btnDisableMonitor" class="bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs uppercase px-6 py-3 rounded-xl transition-all h-[46px] hidden">Disable</button>
+                    </div>
+                </div>
+
+                <!-- Scanner -->
+                <div class="glass rounded-3xl p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-lg">Reconnaissance (airodump-ng)</h3>
+                        <button id="btnToggleScan" class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase px-6 py-2 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed">Start Scan</button>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- APs -->
+                        <div class="bg-black/20 rounded-2xl border border-white/5 overflow-hidden flex flex-col h-[300px]">
+                            <div class="p-3 bg-white/5 border-b border-white/5"><h4 class="text-xs font-bold uppercase tracking-widest text-slate-400">Access Points</h4></div>
+                            <div class="flex-1 overflow-auto">
+                                <table class="w-full text-left">
+                                    <thead class="bg-slate-800/50 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">ESSID</th>
+                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">BSSID</th>
+                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 text-right">PWR</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pentestApList" class="text-xs">
+                                        <tr><td colspan="3" class="text-center py-4 text-slate-500">No APs discovered</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <!-- Clients -->
+                        <div class="bg-black/20 rounded-2xl border border-white/5 overflow-hidden flex flex-col h-[300px]">
+                            <div class="p-3 bg-white/5 border-b border-white/5"><h4 class="text-xs font-bold uppercase tracking-widest text-slate-400">Clients</h4></div>
+                            <div class="flex-1 overflow-auto">
+                                <table class="w-full text-left">
+                                    <thead class="bg-slate-800/50 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">MAC</th>
+                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">BSSID</th>
+                                            <th class="px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500">Probes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pentestClientList" class="text-xs">
+                                        <tr><td colspan="3" class="text-center py-4 text-slate-500">No clients discovered</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attack -->
+                <div class="glass rounded-3xl p-6 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-red-500/10 blur-[50px] pointer-events-none"></div>
+                    <h3 class="font-bold text-lg mb-4 text-red-400 flex items-center gap-2 relative z-10">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Deauthentication Attack
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end relative z-10">
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Target AP (BSSID)</label>
+                            <input type="text" id="deauthAp" placeholder="AA:BB:CC:DD:EE:FF" class="w-full mt-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 outline-none focus:border-red-500/50 transition-all text-white font-mono text-sm">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Target Client (Optional)</label>
+                            <input type="text" id="deauthClient" placeholder="Leave empty for broadcast" class="w-full mt-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 outline-none focus:border-red-500/50 transition-all text-white font-mono text-sm">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Packets</label>
+                            <input type="number" id="deauthCount" value="10" min="1" max="1000" class="w-full mt-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 outline-none focus:border-red-500/50 transition-all text-white">
+                        </div>
+                        <button id="btnLaunchDeauth" class="bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase px-6 py-3 rounded-xl transition-all h-[44px] shadow-lg shadow-red-600/20 disabled:opacity-50">Launch Attack</button>
+                    </div>
+                    <div id="attackResult" class="mt-4 text-sm hidden p-3 rounded-xl border relative z-10"></div>
                 </div>
             </div>
 

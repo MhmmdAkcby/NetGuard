@@ -19,6 +19,7 @@ from database import init_db, save_scan_results, get_latest_scans, get_alerts, s
 from cve_updater import update_cve_database, get_cve_stats
 from ids_engine import IDSEngine
 from security_engine import security_engine
+from wifi_pentest.engine import PentestEngine
 
 # --- SSE Event Queue ---
 event_queue = asyncio.Queue()
@@ -47,11 +48,14 @@ async def handle_ids_alert(alert):
     await event_queue.put(alert)
 
 ids_engine = IDSEngine(handle_ids_alert, gateway_callback=security_engine.set_config)
+pentest_engine = PentestEngine()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await update_mac_database()
+    await pentest_engine.initialize()
+
     
     # Start IDS
     try:
@@ -269,6 +273,69 @@ async def api_save_settings(request: Request):
         except Exception as e:
             logger.error(f"Failed to reschedule scan: {e}")
     return {"status": "success", "data": saved}
+
+# --- WiFi Pentest API Endpoints ---
+@app.get("/api/pentest/status")
+async def api_pentest_status():
+    return {"status": "success", "data": await pentest_engine.get_monitor_status()}
+
+@app.post("/api/pentest/monitor/start")
+async def api_pentest_monitor_start(request: Request):
+    body = await request.json()
+    interface = body.get("interface")
+    if not interface:
+        return {"status": "error", "message": "Interface required"}
+    res = await pentest_engine.enable_monitor_mode(interface)
+    return {"status": "success" if res["success"] else "error", "data": res}
+
+@app.post("/api/pentest/monitor/stop")
+async def api_pentest_monitor_stop():
+    res = await pentest_engine.disable_monitor_mode()
+    return {"status": "success" if res["success"] else "error", "data": res}
+
+@app.post("/api/pentest/scan/start")
+async def api_pentest_scan_start(request: Request):
+    body = await request.json()
+    res = await pentest_engine.start_scan(
+        interface=body.get("interface"),
+        channel=body.get("channel"),
+        bssid=body.get("bssid"),
+        essid=body.get("essid")
+    )
+    return {"status": "success" if res["success"] else "error", "data": res}
+
+@app.post("/api/pentest/scan/stop")
+async def api_pentest_scan_stop():
+    res = await pentest_engine.stop_scan()
+    return {"status": "success" if res["success"] else "error", "data": res}
+
+@app.get("/api/pentest/scan/results")
+async def api_pentest_scan_results():
+    res = await pentest_engine.get_scan_results()
+    return {"status": "success", "data": res}
+
+@app.post("/api/pentest/attack/deauth")
+async def api_pentest_deauth(request: Request):
+    body = await request.json()
+    bssid = body.get("bssid")
+    client = body.get("client")
+    count = body.get("count", 10)
+    interface = body.get("interface")
+    
+    if not bssid:
+        return {"status": "error", "message": "BSSID required"}
+        
+    if client:
+        res = await pentest_engine.attack_deauth_targeted(bssid, client, count, interface)
+    else:
+        res = await pentest_engine.attack_deauth_broadcast(bssid, count, interface)
+        
+    return {"status": "success" if res["success"] else "error", "data": res}
+
+@app.post("/api/pentest/attack/stop")
+async def api_pentest_attack_stop():
+    res = await pentest_engine.stop_attack()
+    return {"status": "success" if res["success"] else "error", "data": res}
 
 @app.get("/api/export/json")
 async def export_json():

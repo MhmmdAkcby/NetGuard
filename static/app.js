@@ -66,7 +66,11 @@ document.addEventListener('DOMContentLoaded', () => {
         timelineDate: document.getElementById('timelineDate'),
         timelineChart: document.getElementById('timelineChart'),
         adapterInfoCard: document.getElementById('adapterInfoCard'),
-        adapterDetails: document.getElementById('adapterDetails')
+        adapterDetails: document.getElementById('adapterDetails'),
+        
+        // Pentest Elements
+        showPentest: document.getElementById('showPentest'),
+        pentestView: document.getElementById('pentestView')
     };
 
     let network = null;
@@ -87,8 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Tab Management ---
     const switchTab = (activeBtn, viewId) => {
-        [elements.showRecon, elements.showSecurity, elements.showHistory, elements.showSettings, elements.showBandwidth].forEach(btn => btn.classList.remove('tab-active'));
-        [elements.reconView, elements.securityView, elements.historyView, elements.settingsView, elements.bandwidthView].forEach(view => view.classList.add('hidden'));
+        [elements.showRecon, elements.showSecurity, elements.showHistory, elements.showSettings, elements.showBandwidth, elements.showPentest].forEach(btn => btn.classList.remove('tab-active'));
+        [elements.reconView, elements.securityView, elements.historyView, elements.settingsView, elements.bandwidthView, elements.pentestView].forEach(view => view.classList.add('hidden'));
         
         activeBtn.classList.add('tab-active');
         document.getElementById(viewId).classList.remove('hidden');
@@ -118,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.showHistory.onclick = () => { switchTab(elements.showHistory, 'historyView'); fetchHistory(); fetchHistoryTimeline(); };
     elements.showSettings.onclick = () => { switchTab(elements.showSettings, 'settingsView'); fetchSettings(); };
     elements.showBandwidth.onclick = () => { switchTab(elements.showBandwidth, 'bandwidthView'); };
+    elements.showPentest.onclick = () => { switchTab(elements.showPentest, 'pentestView'); initPentest(); };
 
     if (elements.timelineDate) {
         elements.timelineDate.value = new Date().toISOString().split('T')[0];
@@ -902,6 +907,207 @@ document.addEventListener('DOMContentLoaded', () => {
                 timelineChart.update();
             }
         } catch (e) { console.error("Error fetching timeline:", e); }
+    };
+
+    // --- Pentest Module Logic ---
+    let pentestScanInterval = null;
+
+    const initPentest = async () => {
+        try {
+            const resp = await fetch('/api/pentest/status');
+            const result = await resp.json();
+            
+            const warningEl = document.getElementById('pentestWarning');
+            const ifaceSelect = document.getElementById('pentestInterface');
+            const statusEl = document.getElementById('monitorStatus');
+            const btnEnable = document.getElementById('btnEnableMonitor');
+            const btnDisable = document.getElementById('btnDisableMonitor');
+            
+            if (result.status === 'success') {
+                const data = result.data;
+                if (!data.supported) {
+                    warningEl.textContent = "Pentest tools require a Linux environment with root privileges and aircrack-ng suite installed. Functionality will be limited/mocked.";
+                    warningEl.classList.remove('hidden');
+                } else {
+                    warningEl.classList.add('hidden');
+                    
+                    // Populate interfaces
+                    ifaceSelect.innerHTML = '<option value="">Select Interface...</option>' + 
+                        (data.wireless_interfaces || []).map(i => `<option value="${i.name}">${i.name} (${i.type})</option>`).join('');
+                        
+                    // Update Status
+                    if (data.active) {
+                        statusEl.textContent = `ACTIVE (${data.monitor_interface})`;
+                        statusEl.classList.replace('bg-slate-500/20', 'bg-purple-500/20');
+                        statusEl.classList.replace('text-slate-400', 'text-purple-400');
+                        btnEnable.classList.add('hidden');
+                        btnDisable.classList.remove('hidden');
+                        ifaceSelect.value = data.original_interface || data.monitor_interface;
+                    } else {
+                        statusEl.textContent = "INACTIVE";
+                        statusEl.classList.replace('bg-purple-500/20', 'bg-slate-500/20');
+                        statusEl.classList.replace('text-purple-400', 'text-slate-400');
+                        btnEnable.classList.remove('hidden');
+                        btnDisable.classList.add('hidden');
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Failed to init pentest:", e);
+        }
+    };
+
+    document.getElementById('btnEnableMonitor').onclick = async () => {
+        const iface = document.getElementById('pentestInterface').value;
+        if (!iface) return alert("Select an interface first.");
+        
+        const btn = document.getElementById('btnEnableMonitor');
+        btn.textContent = "Enabling...";
+        try {
+            const resp = await fetch('/api/pentest/monitor/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({interface: iface})
+            });
+            const res = await resp.json();
+            if (res.status === 'success') {
+                initPentest(); // Refresh
+            } else {
+                alert("Error: " + res.data.message);
+                btn.textContent = "Enable";
+            }
+        } catch (e) {
+            alert("Error connecting to server.");
+            btn.textContent = "Enable";
+        }
+    };
+
+    document.getElementById('btnDisableMonitor').onclick = async () => {
+        const btn = document.getElementById('btnDisableMonitor');
+        btn.textContent = "Disabling...";
+        try {
+            await fetch('/api/pentest/monitor/stop', { method: 'POST' });
+            initPentest(); // Refresh
+            btn.textContent = "Disable";
+        } catch (e) {
+            alert("Error connecting to server.");
+        }
+    };
+
+    // Scanner
+    const btnToggleScan = document.getElementById('btnToggleScan');
+    btnToggleScan.onclick = async () => {
+        if (btnToggleScan.textContent === "Start Scan") {
+            btnToggleScan.textContent = "Starting...";
+            try {
+                const resp = await fetch('/api/pentest/scan/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({interface: document.getElementById('monitorStatus').textContent.match(/\((.*?)\)/)?.[1] || document.getElementById('pentestInterface').value })
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    btnToggleScan.textContent = "Stop Scan";
+                    btnToggleScan.classList.replace('bg-blue-600', 'bg-red-600');
+                    btnToggleScan.classList.replace('hover:bg-blue-500', 'hover:bg-red-500');
+                    
+                    pentestScanInterval = setInterval(fetchPentestResults, 3000);
+                } else {
+                    alert("Error: " + res.data.message);
+                    btnToggleScan.textContent = "Start Scan";
+                }
+            } catch (e) { alert("Error connecting to server."); btnToggleScan.textContent = "Start Scan"; }
+        } else {
+            // Stop
+            btnToggleScan.textContent = "Stopping...";
+            try {
+                await fetch('/api/pentest/scan/stop', { method: 'POST' });
+                if (pentestScanInterval) clearInterval(pentestScanInterval);
+                btnToggleScan.textContent = "Start Scan";
+                btnToggleScan.classList.replace('bg-red-600', 'bg-blue-600');
+                btnToggleScan.classList.replace('hover:bg-red-500', 'hover:bg-blue-500');
+            } catch (e) {}
+        }
+    };
+
+    const fetchPentestResults = async () => {
+        try {
+            const resp = await fetch('/api/pentest/scan/results');
+            const res = await resp.json();
+            if (res.status === 'success') {
+                const aps = res.data.access_points || [];
+                const clients = res.data.clients || [];
+                
+                const apList = document.getElementById('pentestApList');
+                if (aps.length === 0) {
+                    apList.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-slate-500">No APs discovered</td></tr>';
+                } else {
+                    apList.innerHTML = aps.map(a => `
+                        <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthAp').value='${a.bssid}'">
+                            <td class="px-4 py-2 font-bold">${a.essid}</td>
+                            <td class="px-4 py-2 font-mono text-slate-400">${a.bssid}</td>
+                            <td class="px-4 py-2 text-right ${a.power > -60 ? 'text-green-400' : 'text-yellow-400'}">${a.power}</td>
+                        </tr>
+                    `).join('');
+                }
+                
+                const clientList = document.getElementById('pentestClientList');
+                if (clients.length === 0) {
+                    clientList.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-slate-500">No clients discovered</td></tr>';
+                } else {
+                    clientList.innerHTML = clients.map(c => `
+                        <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthClient').value='${c.station}'; document.getElementById('deauthAp').value='${c.bssid}'">
+                            <td class="px-4 py-2 font-mono">${c.station}</td>
+                            <td class="px-4 py-2 font-mono text-slate-400">${c.bssid}</td>
+                            <td class="px-4 py-2 text-slate-400 truncate max-w-[100px]">${c.probed_essids}</td>
+                        </tr>
+                    `).join('');
+                }
+            }
+        } catch (e) {}
+    };
+
+    // Attack
+    document.getElementById('btnLaunchDeauth').onclick = async () => {
+        const ap = document.getElementById('deauthAp').value;
+        const client = document.getElementById('deauthClient').value;
+        const count = document.getElementById('deauthCount').value;
+        const resultDiv = document.getElementById('attackResult');
+        const btn = document.getElementById('btnLaunchDeauth');
+        
+        if (!ap) return alert("Target AP BSSID is required.");
+        
+        btn.textContent = "Attacking...";
+        btn.disabled = true;
+        resultDiv.classList.add('hidden');
+        
+        try {
+            const resp = await fetch('/api/pentest/attack/deauth', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    bssid: ap,
+                    client: client,
+                    count: parseInt(count),
+                    interface: document.getElementById('monitorStatus').textContent.match(/\((.*?)\)/)?.[1] || document.getElementById('pentestInterface').value
+                })
+            });
+            const res = await resp.json();
+            
+            resultDiv.classList.remove('hidden');
+            if (res.status === 'success') {
+                resultDiv.textContent = `Success: ${res.data.message}`;
+                resultDiv.className = 'mt-4 text-sm p-3 rounded-xl border relative z-10 bg-green-500/20 text-green-400 border-green-500/30';
+            } else {
+                resultDiv.textContent = `Failed: ${res.data.message}`;
+                resultDiv.className = 'mt-4 text-sm p-3 rounded-xl border relative z-10 bg-red-500/20 text-red-400 border-red-500/30';
+            }
+        } catch (e) {
+            alert("Error connecting to server.");
+        } finally {
+            btn.textContent = "Launch Attack";
+            btn.disabled = false;
+        }
     };
 
     // Close sidebar on click outside on mobile
