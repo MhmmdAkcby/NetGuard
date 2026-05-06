@@ -1,5 +1,6 @@
 import pytest
 import pytest_asyncio
+from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient, ASGITransport
 from main import app
 from database import init_db, DB_NAME
@@ -102,3 +103,64 @@ async def test_history_pagination():
         
         resp = await ac.get("/api/history?limit=5&page=2")
         assert len(resp.json()["data"]) == 5
+
+@pytest.mark.asyncio
+async def test_pentest_scan_start():
+    with patch('main.pentest_engine.start_scan', new_callable=AsyncMock) as mock_start:
+        mock_start.return_value = {"success": True, "message": "Scan started", "mode": "windows-compat"}
+        
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post("/api/pentest/scan/start", json={"interface": "wlan0mon"})
+            
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["data"]["message"] == "Scan started"
+        mock_start.assert_called_once_with(interface="wlan0mon", channel=None, bssid=None, essid=None)
+
+@pytest.mark.asyncio
+async def test_engine_stream_scan_windows_compat():
+    """Test that stream_scan yields scan_status + pentest_scan messages (Windows compat)."""
+    from wifi_pentest.engine import PentestEngine
+
+    async def fake_scan():
+        yield {"type": "final_data", "data": [
+            {"ssid": "LiveNet", "bssid": "CC:DD:EE:FF:00:11", "signal": "80%", "security": "WPA2", "channel": "1"}
+        ]}
+
+    with patch('wifi_pentest.engine.validate_environment', return_value=(True, "OK")), \
+         patch('wifi_pentest.engine.get_wireless_interfaces', return_value=[]), \
+         patch('wifi_pentest.engine.platform.system', return_value="Windows"), \
+         patch('wifi_pentest.engine.is_linux', return_value=False), \
+         patch('wifi_pentest.engine.scan_surrounding_networks_stream', side_effect=fake_scan):
+        
+        engine = PentestEngine()
+        await engine.initialize()
+
+        results = []
+        async for msg in engine.stream_scan(interface="Wi-Fi 2", interval=0.1):
+            results.append(msg)
+            if msg["type"] == "pentest_scan":
+                # Stop after first data yield
+                await engine.stop_stream()
+                break
+
+        assert len(results) >= 2
+        assert results[0]["type"] == "scan_status"
+        assert results[0]["data"]["success"] is True
+        assert results[1]["type"] == "pentest_scan"
+        assert len(results[1]["access_points"]) == 1
+        assert results[1]["access_points"][0]["essid"] == "LiveNet"
+
+@pytest.mark.asyncio
+async def test_engine_stop_stream():
+    """Test that stop_stream sets _stream_active to False."""
+    from wifi_pentest.engine import PentestEngine
+
+    engine = PentestEngine()
+    engine._stream_active = True
+    
+    with patch.object(engine, 'stop_scan', new_callable=AsyncMock):
+        await engine.stop_stream()
+    
+    assert engine._stream_active is False

@@ -897,8 +897,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { console.error("Error fetching timeline:", e); }
     };
 
-    // --- Pentest Module Logic ---
-    let pentestScanInterval = null;
+    // --- Pentest Module Logic (WebSocket-based Real-time Scanning) ---
+    let pentestSocket = null;
     let selectedPentestTarget = null;
     let lastPentestMode = null;
 
@@ -926,7 +926,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnClearApTarget').onclick = () => {
         selectedPentestTarget = null;
         updatePentestTargetUi();
-        fetchPentestResults();
+        renderPentestResults([], []);
     };
 
     const initPentest = async () => {
@@ -1020,103 +1020,120 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Scanner
+    // --- Scanner (WebSocket Real-time) ---
     const btnToggleScan = document.getElementById('btnToggleScan');
-    btnToggleScan.onclick = async () => {
-        if (btnToggleScan.textContent === "Start Scan") {
-            btnToggleScan.textContent = "Starting...";
-            try {
-                const resp = await fetch('/api/pentest/scan/start', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        interface: document.getElementById('monitorStatus').textContent.match(/\((.*?)\)/)?.[1] || document.getElementById('pentestInterface').value,
-                        bssid: selectedPentestTarget?.bssid || undefined,
-                        channel: selectedPentestTarget?.channel || undefined,
-                        essid: selectedPentestTarget?.essid || undefined
-                    })
-                });
-                const res = await resp.json();
-                if (res.status === 'success') {
-                    lastPentestMode = res.data.mode || null;
-                    btnToggleScan.textContent = "Stop Scan";
-                    btnToggleScan.classList.replace('bg-blue-600', 'bg-red-600');
-                    btnToggleScan.classList.replace('hover:bg-blue-500', 'hover:bg-red-500');
-                    
-                    pentestScanInterval = setInterval(fetchPentestResults, 3000);
-                } else {
-                    alert("Error: " + res.data.message);
-                    btnToggleScan.textContent = "Start Scan";
-                }
-            } catch (e) { alert("Error connecting to server."); btnToggleScan.textContent = "Start Scan"; }
-        } else {
-            // Stop
-            btnToggleScan.textContent = "Stopping...";
-            try {
-                await fetch('/api/pentest/scan/stop', { method: 'POST' });
-                if (pentestScanInterval) clearInterval(pentestScanInterval);
-                btnToggleScan.textContent = "Start Scan";
-                btnToggleScan.classList.replace('bg-red-600', 'bg-blue-600');
-                btnToggleScan.classList.replace('hover:bg-red-500', 'hover:bg-blue-500');
-            } catch (e) {}
-        }
+
+    const resetPentestScanUI = () => {
+        btnToggleScan.textContent = "Start Scan";
+        btnToggleScan.classList.replace('bg-red-600', 'bg-blue-600');
+        btnToggleScan.classList.replace('hover:bg-red-500', 'hover:bg-blue-500');
+        pentestSocket = null;
     };
 
-    const fetchPentestResults = async () => {
-        try {
-            const resp = await fetch('/api/pentest/scan/results');
-            const res = await resp.json();
-            if (res.status === 'success') {
-                const aps = res.data.access_points || [];
-                const clients = res.data.clients || [];
-                
-                const apList = document.getElementById('pentestApList');
-                if (aps.length === 0) {
-                    apList.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-slate-500">No APs discovered</td></tr>';
-                } else {
-                    apList.innerHTML = aps.map(a => `
-                        <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer pentest-ap-row ${selectedPentestTarget?.bssid === a.bssid ? 'bg-purple-500/10' : ''}" data-bssid="${a.bssid}" data-channel="${a.channel ?? ''}" data-essid="${(a.essid || '').replace(/"/g, '&quot;')}">
-                            <td class="px-4 py-2 font-bold">${a.essid}</td>
-                            <td class="px-4 py-2 font-mono text-slate-400">${a.bssid}</td>
-                            <td class="px-4 py-2 text-center">${a.channel ?? '-'}</td>
-                            <td class="px-4 py-2 text-right ${a.power > -60 ? 'text-green-400' : 'text-yellow-400'}">${a.power ?? '-'}</td>
-                            <td class="px-4 py-2">${a.encryption || a.security || '-'}</td>
-                            <td class="px-4 py-2">${a.signal_quality || a.signal || '-'}</td>
-                        </tr>
-                    `).join('');
-                    apList.querySelectorAll('.pentest-ap-row').forEach(row => {
-                        row.onclick = () => {
-                            selectedPentestTarget = {
-                                bssid: row.dataset.bssid,
-                                channel: row.dataset.channel ? parseInt(row.dataset.channel, 10) : undefined,
-                                essid: row.dataset.essid || undefined
-                            };
-                            document.getElementById('deauthAp').value = row.dataset.bssid || '';
-                            updatePentestTargetUi();
-                            fetchPentestResults();
-                        };
-                    });
+    btnToggleScan.onclick = () => {
+        // If WebSocket is open, close it (= Stop Scan)
+        if (pentestSocket && pentestSocket.readyState === WebSocket.OPEN) {
+            pentestSocket.close();
+            resetPentestScanUI();
+            return;
+        }
+
+        // --- Start Scan: Open WebSocket ---
+        btnToggleScan.textContent = "Connecting...";
+
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        pentestSocket = new WebSocket(`${wsProto}//${window.location.host}/ws/pentest/scan`);
+
+        pentestSocket.onopen = () => {
+            // Step 1: Send scan parameters to backend
+            const params = {
+                interface: document.getElementById('monitorStatus').textContent.match(/\((.*?)\)/)?.[1]
+                    || document.getElementById('pentestInterface').value,
+                bssid: selectedPentestTarget?.bssid || undefined,
+                channel: selectedPentestTarget?.channel || undefined,
+                essid: selectedPentestTarget?.essid || undefined
+            };
+            pentestSocket.send(JSON.stringify(params));
+
+            btnToggleScan.textContent = "Stop Scan";
+            btnToggleScan.classList.replace('bg-blue-600', 'bg-red-600');
+            btnToggleScan.classList.replace('hover:bg-blue-500', 'hover:bg-red-500');
+        };
+
+        // Step 5: Receive real-time data and update DOM
+        pentestSocket.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+
+            if (msg.type === 'scan_status') {
+                // Initial scan status from backend
+                const data = msg.data;
+                if (!data.success) {
+                    alert("Scan Error: " + data.message);
+                    resetPentestScanUI();
+                    return;
                 }
-                
-                const clientList = document.getElementById('pentestClientList');
-                if (clients.length === 0) {
-                    const emptyMsg = lastPentestMode === 'windows-compat'
-                        ? 'Client discovery is limited in Windows mode (monitor capture unavailable).'
-                        : 'No clients discovered';
-                    clientList.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-slate-500">${emptyMsg}</td></tr>`;
-                } else {
-                    clientList.innerHTML = clients.map(c => `
-                        <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthClient').value='${c.station}'; document.getElementById('deauthAp').value='${c.bssid}'">
-                            <td class="px-4 py-2 font-mono">${c.station}</td>
-                            <td class="px-4 py-2 font-mono text-slate-400">${c.bssid}</td>
-                            <td class="px-4 py-2 text-right">${c.power ?? '-'}</td>
-                            <td class="px-4 py-2 text-right">${c.packets ?? '-'}</td>
-                            <td class="px-4 py-2 text-slate-400 truncate max-w-[100px]">${c.probed_essids}</td>
-                        </tr>
-                    `).join('');
-                }
+                lastPentestMode = data.mode || null;
+            } else if (msg.type === 'pentest_scan') {
+                // Live AP/Client data from airodump-ng CSV parsing
+                renderPentestResults(msg.access_points || [], msg.clients || []);
+            } else if (msg.type === 'error') {
+                alert("Scan Error: " + msg.message);
             }
-        } catch (e) {}
+        };
+
+        pentestSocket.onclose = () => resetPentestScanUI();
+        pentestSocket.onerror = () => {
+            console.error("Pentest WebSocket error");
+            resetPentestScanUI();
+        };
+    };
+
+    // --- Render AP and Client tables (called by WebSocket onmessage) ---
+    const renderPentestResults = (aps, clients) => {
+        const apList = document.getElementById('pentestApList');
+        if (aps.length === 0) {
+            apList.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-slate-500">No APs discovered</td></tr>';
+        } else {
+            apList.innerHTML = aps.map(a => `
+                <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer pentest-ap-row ${selectedPentestTarget?.bssid === a.bssid ? 'bg-purple-500/10' : ''}" data-bssid="${a.bssid}" data-channel="${a.channel ?? ''}" data-essid="${(a.essid || '').replace(/"/g, '&quot;')}">
+                    <td class="px-4 py-2 font-bold">${a.essid}</td>
+                    <td class="px-4 py-2 font-mono text-slate-400">${a.bssid}</td>
+                    <td class="px-4 py-2 text-center">${a.channel ?? '-'}</td>
+                    <td class="px-4 py-2 text-right ${a.power > -60 ? 'text-green-400' : 'text-yellow-400'}">${a.power ?? '-'}</td>
+                    <td class="px-4 py-2">${a.encryption || a.security || '-'}</td>
+                    <td class="px-4 py-2">${a.signal_quality || a.signal || '-'}</td>
+                </tr>
+            `).join('');
+            apList.querySelectorAll('.pentest-ap-row').forEach(row => {
+                row.onclick = () => {
+                    selectedPentestTarget = {
+                        bssid: row.dataset.bssid,
+                        channel: row.dataset.channel ? parseInt(row.dataset.channel, 10) : undefined,
+                        essid: row.dataset.essid || undefined
+                    };
+                    document.getElementById('deauthAp').value = row.dataset.bssid || '';
+                    updatePentestTargetUi();
+                };
+            });
+        }
+
+        const clientList = document.getElementById('pentestClientList');
+        if (clients.length === 0) {
+            const emptyMsg = lastPentestMode === 'windows-compat'
+                ? 'Client discovery is limited in Windows mode (monitor capture unavailable).'
+                : 'No clients discovered';
+            clientList.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-slate-500">${emptyMsg}</td></tr>`;
+        } else {
+            clientList.innerHTML = clients.map(c => `
+                <tr class="border-b border-white/5 hover:bg-white/5 cursor-pointer" onclick="document.getElementById('deauthClient').value='${c.station}'; document.getElementById('deauthAp').value='${c.bssid}'">
+                    <td class="px-4 py-2 font-mono">${c.station}</td>
+                    <td class="px-4 py-2 font-mono text-slate-400">${c.bssid}</td>
+                    <td class="px-4 py-2 text-right">${c.power ?? '-'}</td>
+                    <td class="px-4 py-2 text-right">${c.packets ?? '-'}</td>
+                    <td class="px-4 py-2 text-slate-400 truncate max-w-[100px]">${c.probed_essids}</td>
+                </tr>
+            `).join('');
+        }
     };
     updatePentestTargetUi();
 

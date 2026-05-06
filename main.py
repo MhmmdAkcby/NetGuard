@@ -337,6 +337,41 @@ async def api_pentest_attack_stop():
     res = await pentest_engine.stop_attack()
     return {"status": "success" if res["success"] else "error", "data": res}
 
+@app.websocket("/ws/pentest/scan")
+async def ws_pentest_scan(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time airodump-ng scanning.
+    Flow: Frontend sends params → Backend starts airodump-ng subprocess →
+    Reads CSV every 2s → Sends parsed JSON to frontend via WebSocket.
+    """
+    await websocket.accept()
+    try:
+        params_data = await websocket.receive_text()
+        params = json.loads(params_data)
+
+        async for update in pentest_engine.stream_scan(
+            interface=params.get("interface"),
+            channel=params.get("channel"),
+            bssid=params.get("bssid"),
+            essid=params.get("essid"),
+            interval=2.0
+        ):
+            await websocket.send_json(update)
+    except WebSocketDisconnect:
+        logger.info("Pentest scan WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Pentest WS Error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        await pentest_engine.stop_stream()
+        try:
+            await websocket.close()
+        except:
+            pass
+
 @app.get("/api/export/json")
 async def export_json():
     data = await get_latest_full_scan()
