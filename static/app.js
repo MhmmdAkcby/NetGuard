@@ -905,10 +905,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     warningEl.classList.remove('hidden');
                 } else {
                     warningEl.classList.add('hidden');
+                    const fmtIface = (i) => {
+                        const parts = [i.name];
+                        if (i.description) parts.push(i.description);
+                        if (i.radio_type) parts.push(i.radio_type);
+                        if (i.signal) parts.push(`Signal ${i.signal}`);
+                        if (i.channel) parts.push(`CH ${i.channel}`);
+                        if (i.state) parts.push(i.state);
+                        return parts.join(' | ');
+                    };
                     
                     // Populate interfaces
                     ifaceSelect.innerHTML = '<option value="">Select Interface...</option>' + 
-                        (data.wireless_interfaces || []).map(i => `<option value="${i.name}">${i.name} (${i.type})</option>`).join('');
+                        (data.wireless_interfaces || []).map(i => `<option value="${i.name}">${fmtIface(i)}</option>`).join('');
                         
                     // Update Status
                     if (data.active) {
