@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
         detailCard: document.getElementById('detailCard'),
         detailPlaceholder: document.getElementById('detailPlaceholder'),
         deviceContent: document.getElementById('deviceContent'),
+        mainContentArea: document.getElementById('mainContentArea'),
+        rightSidebar: document.getElementById('rightSidebar'),
         exportCsvBtn: document.getElementById('exportCsvBtn'),
         exportJsonBtn: document.getElementById('exportJsonBtn'),
         // Settings
@@ -95,6 +97,17 @@ document.addEventListener('DOMContentLoaded', () => {
         
         activeBtn.classList.add('tab-active');
         document.getElementById(viewId).classList.remove('hidden');
+
+        // Offensive tab uses the full right-side area for better workflow focus.
+        if (viewId === 'pentestView') {
+            elements.mainContentArea.classList.remove('lg:col-span-7');
+            elements.mainContentArea.classList.add('lg:col-span-10');
+            elements.rightSidebar.classList.add('hidden');
+        } else {
+            elements.mainContentArea.classList.remove('lg:col-span-10');
+            elements.mainContentArea.classList.add('lg:col-span-7');
+            elements.rightSidebar.classList.remove('hidden');
+        }
         
         // Handle Refresh intervals
         if (bandwidthInterval) { clearInterval(bandwidthInterval); bandwidthInterval = null; }
