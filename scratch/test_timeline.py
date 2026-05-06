@@ -1,7 +1,9 @@
 import asyncio
+import pytest
 from database import init_db, save_scan_results, get_history_timeline
 from datetime import datetime, timedelta
 
+@pytest.mark.asyncio
 async def test_timeline():
     await init_db()
     
