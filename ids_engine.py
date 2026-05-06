@@ -10,8 +10,9 @@ import socket
 logger = logging.getLogger("NetGuard-IDS")
 
 class IDSEngine:
-    def __init__(self, alert_callback):
+    def __init__(self, alert_callback, gateway_callback=None):
         self.alert_callback = alert_callback # Async function to call for alerts
+        self.gateway_callback = gateway_callback # Callback for when gateway is found
         self.running = False
         self._thread = None
         self.interface = None
@@ -98,6 +99,7 @@ class IDSEngine:
                     self.gateway_ip = src_ip
                     self.gateway_mac = src_mac
                     logger.info(f"IDS: Identified potential gateway at {src_ip} ({src_mac})")
+                    if self.gateway_callback: self.gateway_callback(self.interface, self.gateway_ip)
 
     def _handle_ip_scan(self, pkt, now):
         src_ip = pkt[IP].src
@@ -215,6 +217,7 @@ class IDSEngine:
             if res:
                 self.gateway_ip = res[1]
                 logger.info(f"IDS: System gateway detected at {self.gateway_ip}")
+                if self.gateway_callback: self.gateway_callback(self.interface, self.gateway_ip)
         except Exception as e:
             logger.warning(f"IDS: Could not auto-detect gateway: {e}")
 

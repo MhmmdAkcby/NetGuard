@@ -306,3 +306,13 @@ tbody tr:hover {
 .vis-network:active {
     cursor: grabbing;
 }
+
+@keyframes pulse-subtle {
+    0% { border-color: rgba(168, 85, 247, 0.2); }
+    50% { border-color: rgba(168, 85, 247, 0.5); }
+    100% { border-color: rgba(168, 85, 247, 0.2); }
+}
+
+.animate-pulse-subtle {
+    animation: pulse-subtle 3s ease-in-out infinite;
+}

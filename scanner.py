@@ -78,11 +78,38 @@ class InterfaceManager:
         stats = psutil.net_if_stats()
         addrs = psutil.net_if_addrs()
         
+        # Get OS-specific WiFi details
+        wifi_details = {}
+        try:
+            import platform
+            if platform.system() == "Windows":
+                wifi_details = InterfaceManager._get_windows_wifi_details()
+            elif platform.system() == "Linux":
+                wifi_details = InterfaceManager._get_linux_wifi_details()
+        except Exception as e:
+            logger.debug(f"Failed to get WiFi details: {e}")
+
         for name, addr_list in addrs.items():
             if name == "lo" or "loopback" in name.lower(): continue
-            if name in stats and not stats[name].isup: continue
+            # Don't skip if it's not 'up' if we want to show all available cards, 
+            # but usually we want active ones. However, external cards might be down but present.
+            # Let's keep it for now but maybe remove the 'isup' check if we want to show disconnected cards.
+            if name in stats and not stats[name].isup:
+                # If it's a WiFi card we might still want to see it
+                if name not in wifi_details: continue
             
-            iface_info = {"name": name, "ip": None, "mask": None, "cidr": None, "mac": None}
+            iface_info = {
+                "name": name, 
+                "ip": None, 
+                "mask": None, 
+                "cidr": None, 
+                "mac": None,
+                "is_up": stats[name].isup if name in stats else False,
+                "speed": stats[name].speed if name in stats else 0,
+                "is_wifi": name in wifi_details,
+                "details": wifi_details.get(name, {})
+            }
+            
             for addr in addr_list:
                 if addr.family == socket.AF_INET:
                     iface_info["ip"] = addr.address
@@ -94,9 +121,84 @@ class InterfaceManager:
                 elif addr.family == psutil.AF_LINK:
                     iface_info["mac"] = addr.address
             
-            if iface_info["ip"] and iface_info["cidr"]:
+            # If it's a WiFi card, we include it even if no IP yet (it's "there")
+            if (iface_info["ip"] and iface_info["cidr"]) or iface_info["is_wifi"]:
                 interfaces.append(iface_info)
         return interfaces
+
+    @staticmethod
+    def _get_windows_wifi_details() -> Dict[str, Any]:
+        wifi_details = {}
+        try:
+            # Get current interface status
+            output = subprocess.check_output(["netsh", "wlan", "show", "interfaces"], 
+                                           stderr=subprocess.STDOUT, 
+                                           creationflags=0x08000000 if os.name == 'nt' else 0).decode('cp850', errors='ignore')
+            
+            current_iface = None
+            for line in output.split('\n'):
+                line = line.strip()
+                if line.startswith("Name"):
+                    current_iface = line.split(":", 1)[1].strip()
+                    wifi_details[current_iface] = {"type": "WiFi"}
+                elif current_iface and ":" in line:
+                    key, val = line.split(":", 1)
+                    key, val = key.strip(), val.strip()
+                    if key == "Description": wifi_details[current_iface]["description"] = val
+                    if key == "State": wifi_details[current_iface]["state"] = val
+                    if key == "SSID": wifi_details[current_iface]["ssid"] = val
+                    if key == "Band": wifi_details[current_iface]["band"] = val
+                    if key == "Radio type": wifi_details[current_iface]["radio_type"] = val
+                    if key == "Signal": wifi_details[current_iface]["signal"] = val
+
+            # Get driver capabilities for supported bands
+            output_drivers = subprocess.check_output(["netsh", "wlan", "show", "drivers"], 
+                                                  stderr=subprocess.STDOUT, 
+                                                  creationflags=0x08000000 if os.name == 'nt' else 0).decode('cp850', errors='ignore')
+            
+            current_iface = None
+            for line in output_drivers.split('\n'):
+                line = line.strip()
+                if line.startswith("Interface name"):
+                    current_iface = line.split(":", 1)[1].strip()
+                elif current_iface and ":" in line:
+                    key, val = line.split(":", 1)
+                    key, val = key.strip(), val.strip()
+                    if current_iface in wifi_details:
+                        if key == "Radio types supported": wifi_details[current_iface]["supported_radios"] = val
+                        if "GHz" in line and "[" in line:
+                            bands = wifi_details[current_iface].get("bands", [])
+                            band_name = line.split("[")[0].strip()
+                            if band_name not in bands: bands.append(band_name)
+                            wifi_details[current_iface]["bands"] = bands
+        except: pass
+        return wifi_details
+
+    @staticmethod
+    def _get_linux_wifi_details() -> Dict[str, Any]:
+        wifi_details = {}
+        try:
+            # Try nmcli first
+            output = subprocess.check_output(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device"], 
+                                           stderr=subprocess.STDOUT).decode('utf-8', errors='ignore')
+            for line in output.split('\n'):
+                if not line: continue
+                parts = line.split(':')
+                if len(parts) >= 2 and parts[1] == "wifi":
+                    dev = parts[0]
+                    wifi_details[dev] = {
+                        "type": "WiFi",
+                        "state": parts[2],
+                        "ssid": parts[3] if len(parts) > 3 else "Unknown"
+                    }
+                    # Get more details for this specific device
+                    try:
+                        detail = subprocess.check_output(["nmcli", "-t", "-f", "GENERAL.HWADDR,WIFI-PROPERTIES.WEP,WIFI-PROPERTIES.WPA,WIFI-PROPERTIES.WPA2", "device", "show", dev],
+                                                       stderr=subprocess.STDOUT).decode('utf-8', errors='ignore')
+                        # nmcli is a bit messy for bands, but we can try 'iw'
+                    except: pass
+        except: pass
+        return wifi_details
 
     @staticmethod
     def is_admin() -> bool:

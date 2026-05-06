@@ -64,7 +64,9 @@ document.addEventListener('DOMContentLoaded', () => {
         prevHistory: document.getElementById('prevHistory'),
         nextHistory: document.getElementById('nextHistory'),
         timelineDate: document.getElementById('timelineDate'),
-        timelineChart: document.getElementById('timelineChart')
+        timelineChart: document.getElementById('timelineChart'),
+        adapterInfoCard: document.getElementById('adapterInfoCard'),
+        adapterDetails: document.getElementById('adapterDetails')
     };
 
     let network = null;
@@ -139,14 +141,31 @@ document.addEventListener('DOMContentLoaded', () => {
     startSSEListener();
 
     // --- Interface & Initialization ---
+    let availableInterfaces = [];
     const init = async () => {
         try {
             // Load Interfaces
             const resp = await fetch('/api/interfaces');
             const result = await resp.json();
             if (result.status === 'success') {
+                availableInterfaces = result.data;
                 elements.interfaceSelect.innerHTML = '<option value="">Auto-Detect</option>' + 
-                    result.data.map(i => `<option value="${i.name}" data-cidr="${i.cidr}">${i.name} (${i.ip})</option>`).join('');
+                    result.data.map(i => {
+                        let label = `${i.name} (${i.ip || 'No IP'})`;
+                        if (i.is_wifi) {
+                            const d = i.details;
+                            const bands = d.bands ? d.bands.join('/') : (d.band || '');
+                            label = `📡 ${i.name} [${bands}] - ${d.description || 'WiFi Adapter'}`;
+                        }
+                        return `<option value="${i.name}" data-cidr="${i.cidr || ''}" ${i.is_wifi ? 'class="text-purple-400 font-bold"' : ''}>${label}</option>`;
+                    }).join('');
+                
+                // If there's a saved interface, trigger detail update
+                const savedIface = await (await fetch('/api/settings')).json();
+                if (savedIface.data && savedIface.data.last_interface) {
+                    elements.interfaceSelect.value = savedIface.data.last_interface;
+                    updateAdapterInfo(savedIface.data.last_interface);
+                }
             }
 
             // Load and Apply Settings
@@ -164,6 +183,63 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     init();
 
+    const updateAdapterInfo = (ifaceName) => {
+        const iface = availableInterfaces.find(i => i.name === ifaceName);
+        if (!iface) {
+            elements.adapterInfoCard.classList.add('hidden');
+            return;
+        }
+
+        elements.adapterInfoCard.classList.remove('hidden');
+        let html = `
+            <div class="flex justify-between items-center">
+                <span class="text-[9px] text-slate-500 uppercase font-bold">Status</span>
+                <span class="text-[9px] ${iface.is_up ? 'text-green-400' : 'text-red-400'} font-bold uppercase">${iface.is_up ? 'Active' : 'Down'}</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-[9px] text-slate-500 uppercase font-bold">IP Address</span>
+                <span class="text-[9px] text-white font-mono">${iface.ip || '0.0.0.0'}</span>
+            </div>
+        `;
+
+        if (iface.is_wifi) {
+            const d = iface.details;
+            html += `
+                <div class="pt-2 border-t border-white/5 space-y-2">
+                    <div class="flex justify-between items-center">
+                        <span class="text-[9px] text-slate-500 uppercase font-bold">SSID</span>
+                        <span class="text-[9px] text-purple-400 font-bold">${d.ssid || 'Not Connected'}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-[9px] text-slate-500 uppercase font-bold">Band</span>
+                        <span class="text-[9px] text-white font-bold">${d.band || (d.bands ? d.bands.join('/') : 'N/A')}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-[9px] text-slate-500 uppercase font-bold">Signal</span>
+                        <span class="text-[9px] text-white font-bold">${d.signal || 'N/A'}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-[9px] text-slate-500 uppercase font-bold">Radio</span>
+                        <span class="text-[9px] text-white font-bold">${d.radio_type || 'N/A'}</span>
+                    </div>
+                </div>
+                <div class="pt-2 border-t border-white/5">
+                    <p class="text-[8px] text-slate-500 uppercase font-bold mb-1">Capabilities</p>
+                    <p class="text-[8px] text-slate-400 leading-tight">${d.supported_radios || 'Standard WiFi'}</p>
+                </div>
+            `;
+        } else {
+            html += `
+                <div class="flex justify-between items-center pt-2 border-t border-white/5">
+                    <span class="text-[9px] text-slate-500 uppercase font-bold">Type</span>
+                    <span class="text-[9px] text-white font-bold">Ethernet / Virtual</span>
+                </div>
+            `;
+        }
+
+        elements.adapterDetails.innerHTML = html;
+    };
+
     // --- Security Status Sync ---
     const fetchSecurityStatus = async () => {
         try {
@@ -178,6 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.interfaceSelect.onchange = () => {
         const sel = elements.interfaceSelect.options[elements.interfaceSelect.selectedIndex];
         if (sel.dataset.cidr) elements.subnetInput.value = sel.dataset.cidr;
+        updateAdapterInfo(elements.interfaceSelect.value);
     };
 
     // --- vis-network Init ---
