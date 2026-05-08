@@ -1227,7 +1227,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             termSocket.onclose = () => {
                 term.write("\r\n\x1b[1;31m[NetGuard]\x1b[0m Connection closed.\r\n");
-                toggleTerminal(); // Reset UI
+                // Reset UI state without triggering a toggle loop
+                container.classList.add('hidden');
+                cmdsBar.classList.add('hidden');
+                btn.textContent = "Open Terminal";
+                status.textContent = "Offline";
+                status.className = "text-[9px] font-bold uppercase tracking-widest text-slate-500";
+                termSocket = null;
             };
 
             term.onData(data => {

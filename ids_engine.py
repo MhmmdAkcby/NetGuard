@@ -78,6 +78,10 @@ class IDSEngine:
             src_mac = arp.hwsrc.upper()
             
             with self._lock:
+                # Ignore our own fake MAC used for blocking to prevent alert loops
+                if src_mac == "00:0C:29:AB:CD:EF":
+                    return
+                
                 # Check for MAC change for existing IP
                 if src_ip in self.mac_cache and self.mac_cache[src_ip] != src_mac:
                     # Possible ARP Spoofing

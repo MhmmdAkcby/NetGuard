@@ -1,6 +1,14 @@
 # FIXED BUGS:
 # BUG 5 - websocket_scan(): Tracked background save task to prevent silent data loss.
 
+import sys
+import asyncio
+
+# Windows-specific fix for 'NotImplementedError' when using subprocesses
+# This MUST be set before any loops are created.
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI, Request, HTTPException, Query, WebSocket, WebSocketDisconnect, Depends, status, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,7 +17,7 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import uvicorn
 import os
-import asyncio
+
 import logging
 import json
 from datetime import datetime, timedelta
@@ -20,7 +28,7 @@ from cve_updater import update_cve_database, get_cve_stats
 from ids_engine import IDSEngine
 from security_engine import security_engine
 from wifi_pentest.engine import PentestEngine
-from wifi_pentest.terminal import TerminalSession
+from wifi_pentest.terminal import TerminalSession, TerminalSessionManager
 
 # --- SSE Event Queue ---
 event_queue = asyncio.Queue()
@@ -50,6 +58,7 @@ async def handle_ids_alert(alert):
 
 ids_engine = IDSEngine(handle_ids_alert, gateway_callback=security_engine.set_config)
 pentest_engine = PentestEngine()
+terminal_manager = TerminalSessionManager(max_sessions=10)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -70,6 +79,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(update_cve_database, 'interval', hours=24, id="cve_update", replace_existing=True)
     scheduler.start()
     yield
+    await terminal_manager.destroy_all()
     scheduler.shutdown()
 
 app = FastAPI(title="NetGuard Security Hub", lifespan=lifespan)
@@ -147,8 +157,18 @@ async def websocket_scan(websocket: WebSocket):
             passive_engine.start(interface)
             
             # Keep socket alive and check for messages (to stop)
+            # Keep socket alive and check for disconnects
             while True:
-                await asyncio.sleep(1)
+                try:
+                    # Non-blocking check for messages or disconnects
+                    await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    # Normal timeout, just continue loop
+                    await asyncio.sleep(0.9)
+                except WebSocketDisconnect:
+                    break
+                except Exception:
+                    break
         else:
             # Active Mode
             async for update in scan_network_stream(subnet, interface, speed=speed, passive=False):
@@ -376,69 +396,68 @@ async def ws_pentest_scan(websocket: WebSocket):
 @app.websocket("/ws/terminal")
 async def ws_terminal(websocket: WebSocket):
     """
-    WebSocket endpoint for interactive web terminal.
-    Spawns a PTY shell (Linux) or PowerShell (Windows) and bridges
-    stdin/stdout between the browser and the process in real-time.
-    Use for: airodump-ng, aireplay-ng, aircrack-ng, nmap, etc.
+    WebSocket endpoint for interactive web terminal using TerminalSessionManager.
     """
     await websocket.accept()
-    session = TerminalSession()
+    session_id, session = await terminal_manager.create_session()
 
     try:
         # Receive initial config (terminal size)
-        config_data = await websocket.receive_text()
-        config = json.loads(config_data)
-        cols = config.get("cols", 120)
-        rows = config.get("rows", 30)
+        try:
+            config_data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            config = json.loads(config_data)
+        except (asyncio.TimeoutError, json.JSONDecodeError):
+            config = {}
 
-        result = await session.start(cols, rows)
+        cols = config.get("cols", 220)
+        rows = config.get("rows", 50)
+
+        result = await session.start(cols=cols, rows=rows, require_root=True)
+        # Compatibility: frontend might expect 'started' or 'init'
         await websocket.send_json({"type": "started", "data": result})
 
-        if not result.get("success"):
+        if not result["success"]:
             return
 
-        # Background task: read process output → send to browser
-        async def output_reader():
-            while session.is_running:
-                data = await session.read()
-                if data:
-                    try:
-                        await websocket.send_bytes(data)
-                    except Exception:
-                        break
-                else:
-                    await asyncio.sleep(0.02)
-
-        reader_task = asyncio.create_task(output_reader())
-
-        # Main loop: receive browser input → write to process
-        try:
-            while session.is_running:
-                msg = await websocket.receive()
-                if msg["type"] == "websocket.disconnect":
+        # Background task: read process output -> send to browser
+        async def send_output():
+            async for chunk in session.output_stream():
+                try:
+                    await websocket.send_bytes(chunk)
+                except Exception:
                     break
-                if "text" in msg:
-                    text_msg = json.loads(msg["text"])
-                    if text_msg.get("type") == "input":
-                        await session.write(text_msg["data"].encode())
-                    elif text_msg.get("type") == "resize":
-                        await session.resize(
-                            text_msg.get("cols", 120),
-                            text_msg.get("rows", 30)
-                        )
-                elif "bytes" in msg:
-                    await session.write(msg["bytes"])
-        except WebSocketDisconnect:
-            pass
-        finally:
-            reader_task.cancel()
+
+        output_task = asyncio.create_task(send_output())
+
+        # Main loop: receive browser input -> write to process
+        while session.is_running:
             try:
-                await reader_task
-            except asyncio.CancelledError:
-                pass
+                msg = await asyncio.wait_for(websocket.receive(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+
+            if msg["type"] == "websocket.disconnect":
+                break
+
+            if "bytes" in msg and msg["bytes"]:
+                await session.write(msg["bytes"])
+
+            elif "text" in msg and msg["text"]:
+                try:
+                    data = json.loads(msg["text"])
+                    if data.get("type") == "input":
+                        await session.write(data["data"].encode())
+                    elif data.get("type") == "resize":
+                        await session.resize(
+                            data.get("cols", cols),
+                            data.get("rows", rows)
+                        )
+                except json.JSONDecodeError:
+                    # Fallback for raw text input if any
+                    await session.write(msg["text"].encode())
 
     except WebSocketDisconnect:
-        logger.info("Terminal WebSocket disconnected")
+        pass
     except Exception as e:
         logger.error(f"Terminal WS Error: {e}")
         try:
@@ -446,7 +465,9 @@ async def ws_terminal(websocket: WebSocket):
         except:
             pass
     finally:
-        await session.stop()
+        if 'output_task' in locals():
+            output_task.cancel()
+        await terminal_manager.destroy_session(session_id)
         try:
             await websocket.close()
         except:
@@ -472,4 +493,4 @@ async def export_csv():
     return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=scan_report.csv"})
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True, loop="asyncio", reload_excludes=["*.db", "*.db-journal", "*.db-wal", "*.db-shm", "config.json"])
